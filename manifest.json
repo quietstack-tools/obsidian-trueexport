@@ -1,0 +1,10 @@
+{
+  "id": "trueexport",
+  "name": "TrueExport",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Export notes to Word, PDF and HTML that open correctly everywhere. Wikilinks, embeds, callouts, tables and footnotes handled properly. No Pandoc, no LaTeX, no command line.",
+  "author": "QuietStack",
+  "authorUrl": "https://quietstack.tools",
+  "isDesktopOnly": false
+}
