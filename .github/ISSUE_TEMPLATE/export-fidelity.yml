@@ -1,0 +1,38 @@
+name: Export fidelity problem
+description: Something exported incorrectly
+labels: ["fidelity"]
+body:
+  - type: textarea
+    id: source
+    attributes:
+      label: Source Markdown
+      description: The exact note content that failed. Minimal example preferred.
+      render: markdown
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Export format
+      options: [DOCX, PDF, HTML]
+    validations:
+      required: true
+  - type: dropdown
+    id: opened-in
+    attributes:
+      label: Opened in
+      options: [Microsoft Word Windows, Microsoft Word macOS, Apple Pages, Google Docs, LibreOffice Writer, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected vs what happened
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: TrueExport version / Obsidian version / OS
+    validations:
+      required: true
