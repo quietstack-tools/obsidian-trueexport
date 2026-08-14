@@ -3,7 +3,10 @@
 // Resolve a note, render it to DOCX, and unzip the result for structural
 // assertions (TECH_SPEC §9.3).
 
-import JSZip from "jszip";
+// jszip's types use `export =`; a namespace import is the ESM-correct way to
+// consume it without relaxing esModuleInterop project-wide. We only use the
+// static JSZip.loadAsync here.
+import * as JSZip from "jszip";
 import { renderDocx, type DocxRenderOptions } from "../../src/docx";
 import { defaultExportOptions, type ExportOptions } from "../../src/core/options";
 import { resolve, type ResolveOptions } from "./resolve";
