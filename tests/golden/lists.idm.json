@@ -1,0 +1,278 @@
+{
+  "title": "lists",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "list",
+      "ordered": false,
+      "tight": true,
+      "children": [
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "a"
+                }
+              ],
+              "position": {
+                "line": 1
+              }
+            }
+          ],
+          "position": {
+            "line": 1
+          }
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "b"
+                }
+              ],
+              "position": {
+                "line": 2
+              }
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "tight": true,
+              "children": [
+                {
+                  "type": "listItem",
+                  "children": [
+                    {
+                      "type": "paragraph",
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "nested b1"
+                        }
+                      ],
+                      "position": {
+                        "line": 3
+                      }
+                    }
+                  ],
+                  "position": {
+                    "line": 3
+                  }
+                },
+                {
+                  "type": "listItem",
+                  "children": [
+                    {
+                      "type": "paragraph",
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "nested b2"
+                        }
+                      ],
+                      "position": {
+                        "line": 4
+                      }
+                    }
+                  ],
+                  "position": {
+                    "line": 4
+                  }
+                }
+              ],
+              "position": {
+                "line": 3
+              }
+            }
+          ],
+          "position": {
+            "line": 2
+          }
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "c"
+                }
+              ],
+              "position": {
+                "line": 5
+              }
+            }
+          ],
+          "position": {
+            "line": 5
+          }
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "list",
+      "ordered": true,
+      "tight": true,
+      "children": [
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "one"
+                }
+              ],
+              "position": {
+                "line": 7
+              }
+            }
+          ],
+          "position": {
+            "line": 7
+          }
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "two"
+                }
+              ],
+              "position": {
+                "line": 8
+              }
+            },
+            {
+              "type": "list",
+              "ordered": true,
+              "tight": true,
+              "children": [
+                {
+                  "type": "listItem",
+                  "children": [
+                    {
+                      "type": "paragraph",
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "two-a"
+                        }
+                      ],
+                      "position": {
+                        "line": 9
+                      }
+                    }
+                  ],
+                  "position": {
+                    "line": 9
+                  }
+                },
+                {
+                  "type": "listItem",
+                  "children": [
+                    {
+                      "type": "paragraph",
+                      "children": [
+                        {
+                          "type": "text",
+                          "value": "two-b"
+                        }
+                      ],
+                      "position": {
+                        "line": 10
+                      }
+                    }
+                  ],
+                  "position": {
+                    "line": 10
+                  }
+                }
+              ],
+              "position": {
+                "line": 9
+              }
+            }
+          ],
+          "position": {
+            "line": 8
+          }
+        }
+      ],
+      "position": {
+        "line": 7
+      }
+    },
+    {
+      "type": "list",
+      "ordered": false,
+      "tight": false,
+      "children": [
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "loose 1"
+                }
+              ],
+              "position": {
+                "line": 12
+              }
+            }
+          ],
+          "position": {
+            "line": 12
+          }
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "loose 2"
+                }
+              ],
+              "position": {
+                "line": 14
+              }
+            }
+          ],
+          "position": {
+            "line": 14
+          }
+        }
+      ],
+      "position": {
+        "line": 12
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

@@ -1,0 +1,69 @@
+{
+  "title": "unsupported",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "unsupported",
+      "reason": "Dataview queries cannot be exported. TrueExport exports note content, not query results.",
+      "raw": "```dataview\nlist from \"notes\"\n```",
+      "construct": "dataview",
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "unsupported",
+      "reason": "Obsidian Bases cannot be exported.",
+      "raw": "```base\nviews: []\n```",
+      "construct": "bases",
+      "position": {
+        "line": 5
+      }
+    },
+    {
+      "type": "unsupported",
+      "reason": "Tasks queries cannot be exported.",
+      "raw": "```tasks\nnot done\n```",
+      "construct": "tasks",
+      "position": {
+        "line": 9
+      }
+    },
+    {
+      "type": "unsupported",
+      "reason": "Unprocessed Templater syntax found. Run the template before exporting.",
+      "raw": "A line with <% tp.date.now() %> unprocessed Templater.",
+      "construct": "templater",
+      "position": {
+        "line": 13
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": [
+    {
+      "construct": "dataview",
+      "message": "Dataview queries cannot be exported. TrueExport exports note content, not query results.",
+      "line": 1,
+      "sourcePath": "unsupported.md"
+    },
+    {
+      "construct": "bases",
+      "message": "Obsidian Bases cannot be exported.",
+      "line": 5,
+      "sourcePath": "unsupported.md"
+    },
+    {
+      "construct": "tasks",
+      "message": "Tasks queries cannot be exported.",
+      "line": 9,
+      "sourcePath": "unsupported.md"
+    },
+    {
+      "construct": "templater",
+      "message": "Unprocessed Templater syntax found. Run the template before exporting.",
+      "line": 13,
+      "sourcePath": "unsupported.md"
+    }
+  ]
+}

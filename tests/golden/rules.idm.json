@@ -1,0 +1,74 @@
+{
+  "title": "rules",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Above the first rule."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "thematicBreak",
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Between rules."
+        }
+      ],
+      "position": {
+        "line": 5
+      }
+    },
+    {
+      "type": "thematicBreak",
+      "position": {
+        "line": 7
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "And another."
+        }
+      ],
+      "position": {
+        "line": 9
+      }
+    },
+    {
+      "type": "thematicBreak",
+      "position": {
+        "line": 11
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Below the last rule."
+        }
+      ],
+      "position": {
+        "line": 13
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

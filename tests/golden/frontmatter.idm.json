@@ -1,0 +1,37 @@
+{
+  "title": "My Note",
+  "frontmatter": {
+    "title": "My Note",
+    "author": "Jane Doe",
+    "tags": [
+      "alpha",
+      "beta",
+      "gamma"
+    ],
+    "draft": false,
+    "count": 42,
+    "nested": {
+      "key": "value"
+    },
+    "list": [
+      "one",
+      "two"
+    ]
+  },
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Body starts after the frontmatter."
+        }
+      ],
+      "position": {
+        "line": 14
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

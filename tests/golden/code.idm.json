@@ -1,0 +1,32 @@
+{
+  "title": "code",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "codeBlock",
+      "language": "js",
+      "content": "const x = 1;\n    tabbed line",
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "codeBlock",
+      "language": null,
+      "content": "plain fence, no language",
+      "position": {
+        "line": 6
+      }
+    },
+    {
+      "type": "codeBlock",
+      "language": "mermaid",
+      "content": "graph TD; A-->B;",
+      "position": {
+        "line": 10
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

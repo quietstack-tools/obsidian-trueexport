@@ -1,0 +1,64 @@
+{
+  "title": "blockquotes",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "blockquote",
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "quoted line one"
+            },
+            {
+              "type": "lineBreak",
+              "hard": false
+            },
+            {
+              "type": "text",
+              "value": "quoted line two"
+            }
+          ],
+          "position": {
+            "line": 1
+          }
+        },
+        {
+          "type": "blockquote",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "nested quote"
+                },
+                {
+                  "type": "lineBreak",
+                  "hard": false
+                },
+                {
+                  "type": "text",
+                  "value": "second nested line"
+                }
+              ],
+              "position": {
+                "line": 4
+              }
+            }
+          ],
+          "position": {
+            "line": 4
+          }
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}
