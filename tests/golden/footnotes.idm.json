@@ -1,0 +1,172 @@
+{
+  "title": "Note",
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "First ref"
+        },
+        {
+          "type": "footnoteReference",
+          "identifier": "1",
+          "assignedNumber": 1
+        },
+        {
+          "type": "text",
+          "value": " and second"
+        },
+        {
+          "type": "footnoteReference",
+          "identifier": "note",
+          "assignedNumber": 2
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "An inline footnote"
+        },
+        {
+          "type": "footnoteReference",
+          "identifier": "inline-1",
+          "assignedNumber": 3
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Reusing the first"
+        },
+        {
+          "type": "footnoteReference",
+          "identifier": "1",
+          "assignedNumber": 1
+        },
+        {
+          "type": "text",
+          "value": " again, and a dangling"
+        },
+        {
+          "type": "text",
+          "value": " one."
+        }
+      ],
+      "position": {
+        "line": 5
+      }
+    }
+  ],
+  "footnotes": [
+    [
+      "1",
+      {
+        "type": "footnoteDefinition",
+        "identifier": "1",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Definition one."
+              }
+            ],
+            "position": {
+              "line": 7
+            }
+          }
+        ],
+        "position": {
+          "line": 7
+        },
+        "assignedNumber": 1
+      }
+    ],
+    [
+      "note",
+      {
+        "type": "footnoteDefinition",
+        "identifier": "note",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Definition two, multi-line"
+              },
+              {
+                "type": "lineBreak",
+                "hard": false
+              },
+              {
+                "type": "text",
+                "value": "continues on the next line."
+              }
+            ],
+            "position": {
+              "line": 8
+            }
+          }
+        ],
+        "position": {
+          "line": 8
+        },
+        "assignedNumber": 2
+      }
+    ],
+    [
+      "inline-1",
+      {
+        "type": "footnoteDefinition",
+        "identifier": "inline-1",
+        "children": [
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "the inline text"
+              }
+            ]
+          }
+        ],
+        "assignedNumber": 3
+      }
+    ]
+  ],
+  "warnings": [
+    {
+      "construct": "footnote",
+      "message": "Footnote reference [^missing] has no definition and was removed. Add a \"[^missing]: ...\" definition.",
+      "sourcePath": "Note.md"
+    },
+    {
+      "construct": "footnote",
+      "message": "Footnote definition [^unused] is never referenced and was omitted.",
+      "sourcePath": "Note.md"
+    }
+  ]
+}

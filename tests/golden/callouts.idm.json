@@ -1,0 +1,199 @@
+{
+  "title": "Note",
+  "blocks": [
+    {
+      "type": "callout",
+      "calloutType": "note",
+      "title": [
+        {
+          "type": "text",
+          "value": "Title Here"
+        }
+      ],
+      "foldable": false,
+      "defaultFolded": false,
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Body line."
+            }
+          ],
+          "position": {
+            "line": 2
+          }
+        },
+        {
+          "type": "list",
+          "ordered": false,
+          "tight": true,
+          "children": [
+            {
+              "type": "listItem",
+              "children": [
+                {
+                  "type": "paragraph",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "a list item"
+                    }
+                  ],
+                  "position": {
+                    "line": 4
+                  }
+                }
+              ],
+              "position": {
+                "line": 4
+              }
+            }
+          ],
+          "position": {
+            "line": 4
+          }
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "callout",
+      "calloutType": "warning",
+      "title": [
+        {
+          "type": "text",
+          "value": "Warning"
+        }
+      ],
+      "foldable": false,
+      "defaultFolded": false,
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "No explicit title."
+            }
+          ],
+          "position": {
+            "line": 7
+          }
+        }
+      ],
+      "position": {
+        "line": 6
+      }
+    },
+    {
+      "type": "callout",
+      "calloutType": "custom-type",
+      "title": [
+        {
+          "type": "text",
+          "value": "Foldable"
+        }
+      ],
+      "foldable": true,
+      "defaultFolded": false,
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Expanded by default."
+            }
+          ],
+          "position": {
+            "line": 10
+          }
+        }
+      ],
+      "position": {
+        "line": 9
+      }
+    },
+    {
+      "type": "callout",
+      "calloutType": "tip",
+      "title": [
+        {
+          "type": "text",
+          "value": "Collapsed"
+        }
+      ],
+      "foldable": true,
+      "defaultFolded": true,
+      "children": [
+        {
+          "type": "paragraph",
+          "children": [
+            {
+              "type": "text",
+              "value": "Hidden by default."
+            }
+          ],
+          "position": {
+            "line": 13
+          }
+        }
+      ],
+      "position": {
+        "line": 12
+      }
+    },
+    {
+      "type": "callout",
+      "calloutType": "info",
+      "title": [
+        {
+          "type": "text",
+          "value": "Outer"
+        }
+      ],
+      "foldable": false,
+      "defaultFolded": false,
+      "children": [
+        {
+          "type": "callout",
+          "calloutType": "danger",
+          "title": [
+            {
+              "type": "text",
+              "value": "Nested"
+            }
+          ],
+          "foldable": false,
+          "defaultFolded": false,
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "Nested body."
+                }
+              ],
+              "position": {
+                "line": 17
+              }
+            }
+          ],
+          "position": {
+            "line": 16
+          }
+        }
+      ],
+      "position": {
+        "line": 15
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

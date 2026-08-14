@@ -48,7 +48,14 @@ export function parseMarkdown(
     });
   }
 
-  const ctx = { options, warnings, slugs: new SlugRegistry(), sourcePath };
+  const footnotes = new Map<string, FootnoteDefinitionNode>();
+  const ctx = {
+    options,
+    warnings,
+    slugs: new SlugRegistry(),
+    sourcePath,
+    inline: { footnotes, counter: { inline: 0 } },
+  };
   const blocks: BlockNode[] = [];
 
   // An Excalidraw note is a drawing, not exportable prose (§4.13).
@@ -69,6 +76,6 @@ export function parseMarkdown(
     title,
     frontmatter: fm.data,
     blocks,
-    footnotes: new Map(),
+    footnotes,
   };
 }

@@ -5,7 +5,7 @@
 // cell content (§4.6).
 
 import type { TableAlignment, TableCell, TableNode, TableRow } from "../model/nodes";
-import { parseInline } from "./inline";
+import { parseInline, type InlineContext } from "./inline";
 
 /**
  * Split a table row into raw cell strings, honouring `\|` escapes and dropping
@@ -67,11 +67,11 @@ export function isTableStart(headerLine: string, delimiterLine: string | undefin
   return splitCells(headerLine).length === splitCells(delimiterLine).length;
 }
 
-function toRow(cells: string[], width: number): TableRow {
+function toRow(cells: string[], width: number, inlineCtx?: InlineContext): TableRow {
   const out: TableCell[] = [];
   for (let i = 0; i < width; i++) {
     const raw = cells[i] ?? "";
-    out.push({ children: parseInline(raw) });
+    out.push({ children: parseInline(raw, inlineCtx) });
   }
   return { cells: out };
 }
@@ -86,20 +86,25 @@ export interface ParsedTable {
  * Parse a table beginning at `lines[start]` (the header). Caller guarantees
  * `isTableStart` already held for the header + following delimiter row.
  */
-export function parseTable(lines: string[], start: number, sourceLine: number): ParsedTable {
+export function parseTable(
+  lines: string[],
+  start: number,
+  sourceLine: number,
+  inlineCtx?: InlineContext,
+): ParsedTable {
   const headerCells = splitCells(lines[start]);
   const width = headerCells.length;
   const delimCells = splitCells(lines[start + 1]);
   const alignments: (TableAlignment | null)[] = [];
   for (let i = 0; i < width; i++) alignments.push(alignmentOf(delimCells[i] ?? ""));
 
-  const header = toRow(headerCells, width);
+  const header = toRow(headerCells, width, inlineCtx);
   const rows: TableRow[] = [];
   let i = start + 2;
   for (; i < lines.length; i++) {
     const line = lines[i];
     if (line.trim() === "" || !line.includes("|")) break;
-    rows.push(toRow(splitCells(line), width));
+    rows.push(toRow(splitCells(line), width, inlineCtx));
   }
 
   return {
