@@ -18,6 +18,8 @@ export default defineConfig({
     },
   },
   resolve: {
+    // Resolve .ts before .js so the built main.js never shadows main.ts in tests.
+    extensions: [".ts", ".mts", ".mjs", ".js", ".jsx", ".tsx", ".json"],
     alias: {
       "@": path.resolve(__dirname, "./src"),
       obsidian: path.resolve(__dirname, "./tests/mocks/obsidian.ts"),
