@@ -1,0 +1,128 @@
+{
+  "title": "tables",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "table",
+      "header": {
+        "cells": [
+          {
+            "children": [
+              {
+                "type": "text",
+                "value": "Left"
+              }
+            ]
+          },
+          {
+            "children": [
+              {
+                "type": "text",
+                "value": "Center"
+              }
+            ]
+          },
+          {
+            "children": [
+              {
+                "type": "text",
+                "value": "Right"
+              }
+            ]
+          }
+        ]
+      },
+      "rows": [
+        {
+          "cells": [
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "value": "a"
+                }
+              ]
+            },
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "value": "b"
+                }
+              ]
+            },
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "value": "c"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "value": "escaped | pipe"
+                }
+              ]
+            },
+            {
+              "children": [
+                {
+                  "type": "emphasis",
+                  "children": [
+                    {
+                      "type": "text",
+                      "value": "em"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "children": [
+                {
+                  "type": "inlineCode",
+                  "value": "x"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "value": "short"
+                }
+              ]
+            },
+            {
+              "children": []
+            },
+            {
+              "children": []
+            }
+          ]
+        }
+      ],
+      "alignments": [
+        "left",
+        "center",
+        "right"
+      ],
+      "position": {
+        "line": 1
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

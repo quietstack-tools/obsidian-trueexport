@@ -1,0 +1,101 @@
+{
+  "title": "tasks",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "list",
+      "ordered": false,
+      "tight": true,
+      "children": [
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "todo item"
+                }
+              ],
+              "position": {
+                "line": 1
+              }
+            }
+          ],
+          "position": {
+            "line": 1
+          },
+          "checked": false
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "done item"
+                }
+              ],
+              "position": {
+                "line": 2
+              }
+            }
+          ],
+          "position": {
+            "line": 2
+          },
+          "checked": true
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "also done"
+                }
+              ],
+              "position": {
+                "line": 3
+              }
+            }
+          ],
+          "position": {
+            "line": 3
+          },
+          "checked": true
+        },
+        {
+          "type": "listItem",
+          "children": [
+            {
+              "type": "paragraph",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "regular item"
+                }
+              ],
+              "position": {
+                "line": 4
+              }
+            }
+          ],
+          "position": {
+            "line": 4
+          }
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

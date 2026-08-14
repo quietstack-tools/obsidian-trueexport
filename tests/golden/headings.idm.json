@@ -1,0 +1,97 @@
+{
+  "title": "headings",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "heading",
+      "level": 1,
+      "children": [
+        {
+          "type": "text",
+          "value": "H1 Title"
+        }
+      ],
+      "id": "h1-title",
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "heading",
+      "level": 2,
+      "children": [
+        {
+          "type": "text",
+          "value": "H2 with "
+        },
+        {
+          "type": "emphasis",
+          "children": [
+            {
+              "type": "text",
+              "value": "emphasis"
+            }
+          ]
+        }
+      ],
+      "id": "h2-with-emphasis",
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "heading",
+      "level": 3,
+      "children": [
+        {
+          "type": "text",
+          "value": "Third"
+        }
+      ],
+      "id": "third",
+      "position": {
+        "line": 5
+      }
+    },
+    {
+      "type": "heading",
+      "level": 6,
+      "children": [
+        {
+          "type": "text",
+          "value": "H6 deepest"
+        }
+      ],
+      "id": "h6-deepest",
+      "position": {
+        "line": 7
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "####### Not a heading (seven hashes)"
+        }
+      ],
+      "position": {
+        "line": 9
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "#nospace is not a heading"
+        }
+      ],
+      "position": {
+        "line": 11
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

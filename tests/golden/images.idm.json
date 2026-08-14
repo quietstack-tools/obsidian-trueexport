@@ -1,0 +1,68 @@
+{
+  "title": "images",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "imageBlock",
+      "resource": {
+        "kind": "missing",
+        "originalPath": "image.png"
+      },
+      "alt": "alt text",
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "imageBlock",
+      "resource": {
+        "kind": "missing",
+        "originalPath": "pic.png"
+      },
+      "alt": "sized",
+      "position": {
+        "line": 3
+      },
+      "width": 300
+    },
+    {
+      "type": "imageBlock",
+      "resource": {
+        "kind": "missing",
+        "originalPath": "pic2.png"
+      },
+      "alt": "both",
+      "position": {
+        "line": 5
+      },
+      "width": 300,
+      "height": 200
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Inline "
+        },
+        {
+          "type": "inlineImage",
+          "resource": {
+            "kind": "missing",
+            "originalPath": "i.png"
+          },
+          "alt": "tiny"
+        },
+        {
+          "type": "text",
+          "value": " image sits inside a paragraph."
+        }
+      ],
+      "position": {
+        "line": 7
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

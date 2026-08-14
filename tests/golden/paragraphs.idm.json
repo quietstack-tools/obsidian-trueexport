@@ -1,0 +1,48 @@
+{
+  "title": "paragraphs",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "First paragraph line one"
+        },
+        {
+          "type": "lineBreak",
+          "hard": false
+        },
+        {
+          "type": "text",
+          "value": "line two soft-wrapped."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Second paragraph with a hard break here"
+        },
+        {
+          "type": "lineBreak",
+          "hard": true
+        },
+        {
+          "type": "text",
+          "value": "and its continuation on a new line."
+        }
+      ],
+      "position": {
+        "line": 4
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

@@ -1,0 +1,112 @@
+{
+  "title": "links",
+  "frontmatter": {},
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "An "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "external",
+            "url": "https://example.com"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "external"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " link and an "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "external",
+            "url": "https://autolink.dev"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "https://autolink.dev"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " autolink."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "A "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "external",
+            "url": "https://example.com"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "titled"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " link keeps only its text."
+        }
+      ],
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Email me at "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "external",
+            "url": "mailto:person@example.com"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "person@example.com"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 5
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}
