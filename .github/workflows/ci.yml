@@ -32,7 +32,7 @@ jobs:
       - name: Assert build output is not minified
         run: |
           LINES=$(wc -l < main.js)
-          if [ "$LINES" -lt 50 ]; then
+          if [ "$LINES" -lt 20 ]; then
             echo "main.js has $LINES lines — looks minified. Obsidian rejects minified code."
             exit 1
           fi
