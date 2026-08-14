@@ -1,0 +1,121 @@
+{
+  "title": "Note",
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Some "
+        },
+        {
+          "type": "highlight",
+          "children": [
+            {
+              "type": "text",
+              "value": "highlighted"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " text, "
+        },
+        {
+          "type": "strikethrough",
+          "children": [
+            {
+              "type": "text",
+              "value": "struck"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " text, and normal text."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Water is H"
+        },
+        {
+          "type": "subscript",
+          "children": [
+            {
+              "type": "text",
+              "value": "2"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "O and Einstein wrote E = mc"
+        },
+        {
+          "type": "superscript",
+          "children": [
+            {
+              "type": "text",
+              "value": "2"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "A "
+        },
+        {
+          "type": "highlight",
+          "children": [
+            {
+              "type": "text",
+              "value": "highlight with "
+            },
+            {
+              "type": "strong",
+              "children": [
+                {
+                  "type": "text",
+                  "value": "bold"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "value": " inside"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " it."
+        }
+      ],
+      "position": {
+        "line": 5
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": []
+}

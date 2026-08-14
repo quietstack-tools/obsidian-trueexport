@@ -2,27 +2,40 @@
 //
 // Inline parsing: a single line of Markdown text → InlineNode[].
 //
-// Stage 2 scope (standard Markdown): text, emphasis, strong, strikethrough,
-// inline code, external links, autolinks, inline images (with Obsidian-style
-// size hints in the alt text), and backslash escapes. Obsidian-specific inline
-// syntax (wikilinks, highlights, math, footnote refs, sub/superscript) arrives
-// in Stage 3.
+// Covers standard Markdown (text, emphasis/strong/strikethrough, inline code,
+// links, autolinks, images) plus Obsidian inline syntax added in Stage 3:
+// wikilinks `[[...]]`, transclusions `![[...]]`, highlights `==x==`, footnote
+// references `[^id]`, inline footnotes `^[...]`, and `<sub>`/`<sup>`.
 //
-// Line breaks are the caller's responsibility: the block layer knows where
-// source lines were joined, so it inserts LineBreakNodes. A line handed here
-// never contains a newline.
+// R1: pure. Wikilinks and embeds are recognised here but NOT resolved — that
+// needs the vault and happens in the resolver. Crucially, a recognised wikilink
+// or embed is always turned into a real IDM node; raw `[[` / `![[` never leaks
+// into the output (§4.2, the top failure mode).
+//
+// Line breaks are the caller's responsibility (the block layer inserts them);
+// a line handed here never contains a newline.
 
 import type {
+  FootnoteDefinitionNode,
   InlineImageNode,
   InlineNode,
   LinkNode,
   MediaResource,
   TextNode,
 } from "../model/nodes";
+import { slugify } from "../util/slug";
 
-const ASCII_PUNCT = new Set(
-  "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".split(""),
-);
+/**
+ * State threaded through inline parsing so footnotes can be collected. When
+ * absent (e.g. Stage 2 callers), footnote syntax is left as literal text.
+ */
+export interface InlineContext {
+  footnotes: Map<string, FootnoteDefinitionNode>;
+  counter: { inline: number };
+}
+
+const ASCII_PUNCT = new Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".split(""));
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"]);
 
 function isPunct(ch: string): boolean {
   return ch.length === 1 && ASCII_PUNCT.has(ch);
@@ -32,27 +45,33 @@ function isWhitespace(ch: string): boolean {
   return ch === "" || /\s/.test(ch);
 }
 
+function isImagePath(path: string): boolean {
+  const clean = path.split("|")[0].split("#")[0].trim();
+  const dot = clean.lastIndexOf(".");
+  return dot !== -1 && IMAGE_EXTENSIONS.has(clean.slice(dot + 1).toLowerCase());
+}
+
+function basename(path: string): string {
+  const file = path.slice(path.lastIndexOf("/") + 1);
+  const dot = file.lastIndexOf(".");
+  return dot === -1 ? file : file.slice(0, dot);
+}
+
 // ---- Chunk model used between scanning and emphasis resolution ----
+
+type DelimChar = "*" | "_" | "~" | "=";
 
 type Chunk =
   | { kind: "text"; value: string }
   | { kind: "node"; node: InlineNode }
-  | {
-      kind: "delim";
-      char: "*" | "_" | "~";
-      count: number;
-      canOpen: boolean;
-      canClose: boolean;
-    };
+  | { kind: "delim"; char: DelimChar; count: number; canOpen: boolean; canClose: boolean };
 
-/** Flatten plain inline text out of a node tree — used for heading slugs. */
+/** Flatten plain inline text out of a node tree — used for heading slugs etc. */
 export function toPlainText(nodes: InlineNode[]): string {
   let out = "";
   for (const node of nodes) {
     switch (node.type) {
       case "text":
-        out += node.value;
-        break;
       case "inlineCode":
         out += node.value;
         break;
@@ -68,7 +87,6 @@ export function toPlainText(nodes: InlineNode[]): string {
       case "mathInline":
         out += node.latex;
         break;
-      // images, footnote refs and line breaks contribute no heading text
       default:
         break;
     }
@@ -76,15 +94,15 @@ export function toPlainText(nodes: InlineNode[]): string {
   return out;
 }
 
-export function parseInline(text: string): InlineNode[] {
-  const chunks = scan(text);
+export function parseInline(text: string, ctx?: InlineContext): InlineNode[] {
+  const chunks = scan(text, ctx);
   resolveEmphasis(chunks);
   return chunksToNodes(chunks);
 }
 
 // ---- Scanning: raw text → chunks ----
 
-function scan(text: string): Chunk[] {
+function scan(text: string, ctx?: InlineContext): Chunk[] {
   const chunks: Chunk[] = [];
 
   const pushText = (value: string): void => {
@@ -92,6 +110,9 @@ function scan(text: string): Chunk[] {
     const last = chunks[chunks.length - 1];
     if (last && last.kind === "text") last.value += value;
     else chunks.push({ kind: "text", value });
+  };
+  const pushNode = (node: InlineNode): void => {
+    chunks.push({ kind: "node", node });
   };
 
   let i = 0;
@@ -109,10 +130,7 @@ function scan(text: string): Chunk[] {
     if (c === "`") {
       const code = matchCodeSpan(text, i);
       if (code) {
-        chunks.push({
-          kind: "node",
-          node: { type: "inlineCode", value: code.value },
-        });
+        pushNode({ type: "inlineCode", value: code.value });
         i = code.end;
         continue;
       }
@@ -121,24 +139,21 @@ function scan(text: string): Chunk[] {
       continue;
     }
 
-    // Autolink <https://…> or <email>.
-    if (c === "<") {
-      const auto = matchAutolink(text, i);
-      if (auto) {
-        chunks.push({ kind: "node", node: auto.node });
-        i = auto.end;
+    // Transclusion ![[ ... ]] before image ![alt](dest).
+    if (c === "!" && text[i + 1] === "[" && text[i + 2] === "[") {
+      const wiki = matchWiki(text, i + 1);
+      if (wiki) {
+        pushNode(buildEmbed(wiki.inner, ctx));
+        i = wiki.end;
         continue;
       }
-      pushText("<");
-      i += 1;
-      continue;
     }
 
     // Inline image ![alt](dest).
     if (c === "!" && text[i + 1] === "[") {
       const link = matchLink(text, i + 1);
       if (link) {
-        chunks.push({ kind: "node", node: makeImage(link.inner, link.dest) });
+        pushNode(makeImage(link.inner, link.dest));
         i = link.end;
         continue;
       }
@@ -147,15 +162,70 @@ function scan(text: string): Chunk[] {
       continue;
     }
 
+    // Wikilink [[ ... ]] before footnote ref and normal link.
+    if (c === "[" && text[i + 1] === "[") {
+      const wiki = matchWiki(text, i);
+      if (wiki) {
+        pushNode(buildWikilink(wiki.inner));
+        i = wiki.end;
+        continue;
+      }
+    }
+
+    // Footnote reference [^id].
+    if (c === "[" && text[i + 1] === "^" && ctx) {
+      const m = text.slice(i).match(/^\[\^([^\]\s]+)\]/);
+      if (m) {
+        pushNode({ type: "footnoteReference", identifier: m[1] });
+        i += m[0].length;
+        continue;
+      }
+    }
+
     // Inline link [text](dest).
     if (c === "[") {
       const link = matchLink(text, i);
       if (link) {
-        chunks.push({ kind: "node", node: makeLink(link.inner, link.dest) });
+        pushNode(makeLink(link.inner, link.dest, ctx));
         i = link.end;
         continue;
       }
       pushText("[");
+      i += 1;
+      continue;
+    }
+
+    // Inline footnote ^[text].
+    if (c === "^" && text[i + 1] === "[" && ctx) {
+      const inner = matchBracket(text, i + 1);
+      if (inner) {
+        pushNode(makeInlineFootnote(inner.value, ctx));
+        i = inner.end;
+        continue;
+      }
+    }
+
+    // <sub> / <sup>, then autolink <url>.
+    if (c === "<") {
+      const sub = matchHtmlPair(text, i, "sub");
+      if (sub) {
+        pushNode({ type: "subscript", children: parseInline(sub.inner, ctx) });
+        i = sub.end;
+        continue;
+      }
+      const sup = matchHtmlPair(text, i, "sup");
+      if (sup) {
+        pushNode({ type: "superscript", children: parseInline(sup.inner, ctx) });
+        i = sup.end;
+        continue;
+      }
+      const auto = matchAutolink(text, i);
+      if (auto) {
+        pushNode(auto.node);
+        i = auto.end;
+        continue;
+      }
+      pushText("<");
       i += 1;
       continue;
     }
@@ -169,9 +239,14 @@ function scan(text: string): Chunk[] {
       continue;
     }
 
-    // Strikethrough uses GFM double-tilde only.
+    // Strikethrough ~~ and highlight == use double delimiters only.
     if (c === "~" && text[i + 1] === "~") {
       chunks.push(makeDelim("~", 2, text, i, i + 2));
+      i += 2;
+      continue;
+    }
+    if (c === "=" && text[i + 1] === "=") {
+      chunks.push(makeDelim("=", 2, text, i, i + 2));
       i += 2;
       continue;
     }
@@ -184,7 +259,7 @@ function scan(text: string): Chunk[] {
 }
 
 function makeDelim(
-  char: "*" | "_" | "~",
+  char: DelimChar,
   count: number,
   text: string,
   start: number,
@@ -194,11 +269,9 @@ function makeDelim(
   const after = end < text.length ? text[end] : "";
 
   const leftFlanking =
-    !isWhitespace(after) &&
-    (!isPunct(after) || isWhitespace(before) || isPunct(before));
+    !isWhitespace(after) && (!isPunct(after) || isWhitespace(before) || isPunct(before));
   const rightFlanking =
-    !isWhitespace(before) &&
-    (!isPunct(before) || isWhitespace(after) || isPunct(after));
+    !isWhitespace(before) && (!isPunct(before) || isWhitespace(after) || isPunct(after));
 
   let canOpen = leftFlanking;
   let canClose = rightFlanking;
@@ -210,31 +283,36 @@ function makeDelim(
   return { kind: "delim", char, count, canOpen, canClose };
 }
 
-function matchCodeSpan(
-  text: string,
-  start: number,
-): { value: string; end: number } | null {
+function matchCodeSpan(text: string, start: number): { value: string; end: number } | null {
   let n = 0;
   while (text[start + n] === "`") n++;
   const fence = "`".repeat(n);
   const close = text.indexOf(fence, start + n);
   if (close === -1) return null;
-  let value = text.slice(start + n, close);
-  // Collapse internal runs of whitespace to single spaces, then strip a single
-  // surrounding space when the content is not entirely spaces (CommonMark).
-  value = value.replace(/\s+/g, " ");
+  let value = text.slice(start + n, close).replace(/\s+/g, " ");
   if (value.length > 2 && value.startsWith(" ") && value.endsWith(" ") && value.trim() !== "") {
     value = value.slice(1, -1);
   }
   return { value, end: close + n };
 }
 
-function matchAutolink(
+/** Match a `<tag>…</tag>` pair, returning inner text. */
+function matchHtmlPair(
   text: string,
   start: number,
-): { node: LinkNode; end: number } | null {
-  const rest = text.slice(start);
-  const m = rest.match(/^<((?:https?|mailto):[^>\s]+|[^>\s@]+@[^>\s]+\.[^>\s]+)>/);
+  tag: string,
+): { inner: string; end: number } | null {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  if (text.slice(start, start + open.length).toLowerCase() !== open) return null;
+  const contentStart = start + open.length;
+  const closeIdx = text.toLowerCase().indexOf(close, contentStart);
+  if (closeIdx === -1) return null;
+  return { inner: text.slice(contentStart, closeIdx), end: closeIdx + close.length };
+}
+
+function matchAutolink(text: string, start: number): { node: LinkNode; end: number } | null {
+  const m = text.slice(start).match(/^<((?:https?|mailto):[^>\s]+|[^>\s@]+@[^>\s]+\.[^>\s]+)>/);
   if (!m) return null;
   const raw = m[1];
   const url = raw.includes("@") && !raw.includes(":") ? `mailto:${raw}` : raw;
@@ -246,6 +324,32 @@ function matchAutolink(
     },
     end: start + m[0].length,
   };
+}
+
+/** Match `[[ inner ]]` starting at the first `[`. */
+function matchWiki(text: string, start: number): { inner: string; end: number } | null {
+  if (text[start] !== "[" || text[start + 1] !== "[") return null;
+  const close = text.indexOf("]]", start + 2);
+  if (close === -1) return null;
+  return { inner: text.slice(start + 2, close), end: close + 2 };
+}
+
+/** Match a balanced `[ ... ]` starting at the opening bracket. */
+function matchBracket(text: string, start: number): { value: string; end: number } | null {
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\\") {
+      i++;
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) return { value: text.slice(start + 1, i), end: i + 1 };
+    }
+  }
+  return null;
 }
 
 /** Parse a `[inner](dest)` starting at the opening bracket. */
@@ -329,18 +433,113 @@ function matchLink(
   return { inner, dest, end: j + 1 };
 }
 
-function makeLink(inner: string, dest: string): LinkNode {
+function makeLink(inner: string, dest: string, ctx?: InlineContext): LinkNode {
   return {
     type: "link",
     target: { kind: "external", url: dest },
-    children: parseInline(inner),
+    children: parseInline(inner, ctx),
   };
 }
 
+function makeInlineFootnote(inner: string, ctx: InlineContext): InlineNode {
+  ctx.counter.inline += 1;
+  const identifier = `inline-${ctx.counter.inline}`;
+  ctx.footnotes.set(identifier, {
+    type: "footnoteDefinition",
+    identifier,
+    children: [{ type: "paragraph", children: parseInline(inner, ctx) }],
+  });
+  return { type: "footnoteReference", identifier };
+}
+
+// ---- Wikilinks and embeds ----
+
+interface WikiTarget {
+  notePath: string;
+  heading?: string;
+  blockId?: string;
+  alias?: string;
+  sameNote: boolean;
+}
+
+function parseWikiTarget(inner: string): WikiTarget {
+  const pipe = inner.indexOf("|");
+  const linkPart = pipe === -1 ? inner : inner.slice(0, pipe);
+  const alias = pipe === -1 ? undefined : inner.slice(pipe + 1).trim();
+
+  const hash = linkPart.indexOf("#");
+  const notePath = (hash === -1 ? linkPart : linkPart.slice(0, hash)).trim();
+  const sub = hash === -1 ? "" : linkPart.slice(hash + 1).trim();
+
+  const target: WikiTarget = { notePath, sameNote: notePath === "" };
+  if (alias) target.alias = alias;
+  if (sub.startsWith("^")) target.blockId = sub.slice(1);
+  else if (sub !== "") target.heading = sub;
+  return target;
+}
+
+function wikiDisplay(t: WikiTarget): string {
+  if (t.alias) return t.alias;
+  if (t.sameNote) return t.heading ?? (t.blockId ? `^${t.blockId}` : "");
+  return basename(t.notePath);
+}
+
+function buildWikilink(inner: string): LinkNode {
+  const t = parseWikiTarget(inner);
+  const children: InlineNode[] = [{ type: "text", value: wikiDisplay(t) }];
+
+  if (t.sameNote) {
+    const id = t.heading ? slugify(t.heading) : (t.blockId ?? "");
+    return { type: "link", target: { kind: "anchor", id }, children };
+  }
+
+  const target: Extract<LinkNode["target"], { kind: "internal" }> = {
+    kind: "internal",
+    notePath: t.notePath,
+    resolved: false,
+  };
+  if (t.heading) target.heading = t.heading;
+  if (t.blockId) target.blockId = t.blockId;
+  return { type: "link", target, children };
+}
+
+function buildEmbed(inner: string, ctx?: InlineContext): InlineNode {
+  const pipe = inner.indexOf("|");
+  const targetPart = (pipe === -1 ? inner : inner.slice(0, pipe)).trim();
+  const suffix = pipe === -1 ? "" : inner.slice(pipe + 1).trim();
+
+  if (isImagePath(targetPart)) {
+    const node: InlineImageNode = {
+      type: "inlineImage",
+      resource: unresolvedMedia(targetPart),
+      alt: basename(targetPart),
+    };
+    const size = suffix.match(/^(\d+)(?:x(\d+))?$/);
+    if (size) {
+      node.width = Number(size[1]);
+      if (size[2]) node.height = Number(size[2]);
+    }
+    return node;
+  }
+
+  // Note embed: a valid IDM link the resolver either splices (block-level) or
+  // resolves as a plain link (inline). Never a raw ![[...]].
+  const t = parseWikiTarget(inner);
+  const children: InlineNode[] = [{ type: "text", value: wikiDisplay(t) }];
+  const target: Extract<LinkNode["target"], { kind: "internal" }> = {
+    kind: "internal",
+    notePath: t.notePath,
+    resolved: false,
+    embed: true,
+  };
+  if (t.heading) target.heading = t.heading;
+  if (t.blockId) target.blockId = t.blockId;
+  return { type: "link", target, children };
+}
+
+// ---- Images ----
+
 function unresolvedMedia(path: string): MediaResource {
-  // The parser is pure and cannot read the vault; the resolver (Stage 3) reads
-  // the bytes and upgrades this to "binary", "remote-blocked", or confirms
-  // "missing" with a warning.
   return { kind: "missing", originalPath: path };
 }
 
@@ -356,12 +555,7 @@ function makeImage(alt: string, dest: string): InlineImageNode {
   return node;
 }
 
-/** Extract Obsidian-style `|width` / `|widthxheight` size hints from alt text. */
-export function parseImageSize(alt: string): {
-  alt: string;
-  width?: number;
-  height?: number;
-} {
+export function parseImageSize(alt: string): { alt: string; width?: number; height?: number } {
   const pipe = alt.lastIndexOf("|");
   let sizePart: string | null = null;
   let label = alt;
@@ -375,10 +569,7 @@ export function parseImageSize(alt: string): {
 
   if (sizePart && /^\d+(x\d+)?$/.test(sizePart)) {
     const [w, h] = sizePart.split("x");
-    const result: { alt: string; width?: number; height?: number } = {
-      alt: label,
-      width: Number(w),
-    };
+    const result: { alt: string; width?: number; height?: number } = { alt: label, width: Number(w) };
     if (h !== undefined) result.height = Number(h);
     return result;
   }
@@ -416,6 +607,7 @@ function resolveEmphasis(chunks: Chunk[]): void {
 
     let node: InlineNode;
     if (closer.char === "~") node = { type: "strikethrough", children };
+    else if (closer.char === "=") node = { type: "highlight", children };
     else if (take === 2) node = { type: "strong", children };
     else node = { type: "emphasis", children };
 

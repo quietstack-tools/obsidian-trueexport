@@ -1,0 +1,186 @@
+{
+  "title": "wikilinks",
+  "blocks": [
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "A link to "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "internal",
+            "notePath": "Target.md",
+            "resolved": true
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Target"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " and an alias "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "internal",
+            "notePath": "Target.md",
+            "resolved": true
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "shown text"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 1
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "A heading link "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "internal",
+            "notePath": "Target.md",
+            "resolved": true,
+            "heading": "Section"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Target"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " and a block link "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "internal",
+            "notePath": "Target.md",
+            "resolved": true,
+            "blockId": "abc"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Target"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 3
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "Same-note "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "anchor",
+            "id": "local-heading"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Local Heading"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": " and "
+        },
+        {
+          "type": "link",
+          "target": {
+            "kind": "anchor",
+            "id": "self-block"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "^self-block"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "value": "."
+        }
+      ],
+      "position": {
+        "line": 5
+      }
+    },
+    {
+      "type": "paragraph",
+      "children": [
+        {
+          "type": "text",
+          "value": "A link to "
+        },
+        {
+          "type": "text",
+          "value": "Elsewhere"
+        },
+        {
+          "type": "text",
+          "value": " outside the export, and "
+        },
+        {
+          "type": "text",
+          "value": "Ghost"
+        },
+        {
+          "type": "text",
+          "value": " that is missing."
+        }
+      ],
+      "position": {
+        "line": 7
+      }
+    }
+  ],
+  "footnotes": [],
+  "warnings": [
+    {
+      "construct": "wikilink",
+      "message": "Link to \"Ghost\" could not be resolved. Check the note exists in your vault.",
+      "line": 7,
+      "sourcePath": "wikilinks.md"
+    }
+  ]
+}

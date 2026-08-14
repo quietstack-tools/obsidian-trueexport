@@ -249,6 +249,14 @@ export type LinkTarget =
       heading?: string;
       blockId?: string;
       resolved: boolean;
+      /**
+       * True for a transclusion (`![[...]]`) rather than a link (`[[...]]`).
+       * The parser sets this; the resolver either splices the target (when the
+       * embed is a whole paragraph) or, for an inline embed, resolves it as a
+       * plain link. No `internal` embed target ever survives into the rendered
+       * IDM as an unresolved embed.
+       */
+      embed?: boolean;
     }
   | { kind: "anchor"; id: string };
 

@@ -1,8 +1,13 @@
 // src/core/parser/blocks.ts
 //
-// Block-level parsing: lines → BlockNode[]. Container blocks (blockquotes, list
-// items) extract their inner lines and recurse, which keeps nesting and
-// tight/loose handling local and avoids global continuation bookkeeping.
+// Block-level parsing: lines → BlockNode[]. Container blocks (blockquotes,
+// callouts, list items) extract their inner lines and recurse, which keeps
+// nesting and tight/loose handling local.
+//
+// Stage 3 adds callouts (blockquotes opening with `[!type]`), footnote
+// definition collection, and block-reference ids (`^id`). Wikilinks and embeds
+// are handled by the inline scanner; footnote *numbering* and transclusion
+// *resolution* are the resolver's job.
 
 import type {
   BlockNode,
@@ -15,18 +20,20 @@ import type {
   ParagraphNode,
   UnsupportedNode,
 } from "../model/nodes";
-import type { WarningConstruct } from "../warnings";
-import type { WarningCollector } from "../warnings";
+import type { WarningConstruct, WarningCollector } from "../warnings";
 import type { ExportOptions } from "../options";
 import { SlugRegistry } from "../util/slug";
-import { parseInline, toPlainText } from "./inline";
+import { parseInline, toPlainText, type InlineContext } from "./inline";
 import { isTableStart, parseTable } from "./table";
+import { matchCalloutHeader, buildCallout } from "./callout";
+import { matchFootnoteDefinition, collectDefinitionBody } from "./footnote";
 
 export interface ParseContext {
   options: ExportOptions;
   warnings: WarningCollector;
   slugs: SlugRegistry;
   sourcePath: string;
+  inline: InlineContext;
 }
 
 export interface Line {
@@ -43,8 +50,7 @@ export const UNSUPPORTED_MESSAGES: Record<string, string> = {
   excalidraw:
     "Excalidraw drawings are not supported. Export the drawing as PNG and embed the image.",
   tasks: "Tasks queries cannot be exported.",
-  templater:
-    "Unprocessed Templater syntax found. Run the template before exporting.",
+  templater: "Unprocessed Templater syntax found. Run the template before exporting.",
 };
 
 export function makeUnsupported(
@@ -70,7 +76,6 @@ function leadingSpaces(text: string): number {
 interface Marker {
   ordered: boolean;
   indent: number;
-  /** Columns from line start to the first content character. */
   markerWidth: number;
   start?: number;
   task?: boolean;
@@ -109,6 +114,12 @@ function buildMarker(
   return marker;
 }
 
+/** A whole-line `^blockid`, used to tag the preceding block. */
+function matchBlockId(text: string): string | null {
+  const m = text.match(/^ {0,3}\^([a-zA-Z0-9_-]+) *$/);
+  return m ? m[1] : null;
+}
+
 export function parseBlocks(lines: Line[], ctx: ParseContext): BlockNode[] {
   const blocks: BlockNode[] = [];
   let i = 0;
@@ -116,6 +127,32 @@ export function parseBlocks(lines: Line[], ctx: ParseContext): BlockNode[] {
   while (i < lines.length) {
     const line = lines[i];
     if (isBlank(line.text)) {
+      i++;
+      continue;
+    }
+
+    // Footnote definition — collected into the map, never emitted (§4.5.3).
+    const def = matchFootnoteDefinition(line.text);
+    if (def) {
+      const texts = lines.map((l) => l.text);
+      const { content, consumed } = collectDefinitionBody(texts, i, def.first);
+      const contentLines: Line[] = content
+        .split("\n")
+        .map((text, idx) => ({ text, number: line.number + idx }));
+      ctx.inline.footnotes.set(def.identifier, {
+        type: "footnoteDefinition",
+        identifier: def.identifier,
+        children: parseBlocks(contentLines, ctx),
+        position: { line: line.number },
+      });
+      i += consumed;
+      continue;
+    }
+
+    // A lone `^blockid` tags the previous block.
+    const blockId = matchBlockId(line.text);
+    if (blockId && blocks.length > 0) {
+      blocks[blocks.length - 1].blockId = blockId;
       i++;
       continue;
     }
@@ -155,7 +192,7 @@ export function parseBlocks(lines: Line[], ctx: ParseContext): BlockNode[] {
     }
 
     if (isTableStart(line.text, lines[i + 1]?.text)) {
-      const table = parseTable(lines.map((l) => l.text), i, line.number);
+      const table = parseTable(lines.map((l) => l.text), i, line.number, ctx.inline);
       blocks.push(table.node);
       i += table.consumed;
       continue;
@@ -240,18 +277,18 @@ function tryHeading(line: Line, ctx: ParseContext): HeadingNode | null {
   if (!m) return null;
   const level = m[1].length as 1 | 2 | 3 | 4 | 5 | 6;
   const text = (m[2] ?? "").trim();
-  const children = parseInline(text);
+  const children = parseInline(text, ctx.inline);
   const id = ctx.slugs.unique(toPlainText(children));
   return { type: "heading", level, children, id, position: { line: line.number } };
 }
 
-// ---- Blockquotes ----
+// ---- Blockquotes and callouts ----
 
 function parseBlockquote(
   lines: Line[],
   start: number,
   ctx: ParseContext,
-): { node: BlockquoteNode; consumed: number } {
+): { node: BlockNode; consumed: number } {
   const inner: Line[] = [];
   let i = start;
   for (; i < lines.length; i++) {
@@ -259,12 +296,22 @@ function parseBlockquote(
     if (!/^ {0,3}>/.test(t)) break;
     inner.push({ text: t.replace(/^ {0,3}> ?/, ""), number: lines[i].number });
   }
+  const consumed = i - start;
+  const startLine = lines[start].number;
+
+  const head = inner.length > 0 ? matchCalloutHeader(inner[0].text) : null;
+  if (head) {
+    const body = parseBlocks(inner.slice(1), ctx);
+    const node = buildCallout(head, (t) => parseInline(t, ctx.inline), body, startLine);
+    return { node, consumed };
+  }
+
   const node: BlockquoteNode = {
     type: "blockquote",
     children: parseBlocks(inner, ctx),
-    position: { line: lines[start].number },
+    position: { line: startLine },
   };
-  return { node, consumed: i - start };
+  return { node, consumed };
 }
 
 // ---- HTML blocks (minimal) ----
@@ -277,10 +324,7 @@ const BLOCK_HTML_TAGS = new Set([
   "tfoot", "th", "thead", "tr", "ul", "video", "audio",
 ]);
 
-function tryHtmlBlock(
-  lines: Line[],
-  start: number,
-): { raw: string; consumed: number } | null {
+function tryHtmlBlock(lines: Line[], start: number): { raw: string; consumed: number } | null {
   const text = lines[start].text;
   const comment = /^ {0,3}<!--/.test(text);
   const tagMatch = text.match(/^ {0,3}<\/?([a-zA-Z][a-zA-Z0-9-]*)/);
@@ -351,12 +395,8 @@ function parseList(
           i = j;
           continue;
         }
-        if (nextIsSibling) {
-          loose = true;
-          i = j;
-        } else {
-          i = j;
-        }
+        if (nextIsSibling) loose = true;
+        i = j;
         break;
       }
       if (leadingSpaces(l.text) >= contentIndent) {
@@ -393,6 +433,8 @@ function startsBlock(text: string, next: string | undefined): boolean {
   if (/^ {0,3}#{1,6}(?: |$)/.test(text)) return true;
   if (/^ {0,3}>/.test(text)) return true;
   if (matchMarker(text)) return true;
+  if (matchBlockId(text) !== null) return true;
+  if (matchFootnoteDefinition(text) !== null) return true;
   if (isTableStart(text, next)) return true;
   return false;
 }
@@ -411,20 +453,34 @@ function collectParagraph(
   const consumed = i - start;
 
   const joined = plines.map((l) => l.text).join("\n");
-  if (/<%[\s\S]*?%>/.test(joined) || joined.includes("<%")) {
+  if (joined.includes("<%")) {
     return {
       nodes: [makeUnsupported("templater", joined, plines[0].number, ctx)],
       consumed,
     };
   }
 
-  return { nodes: buildParagraph(plines), consumed };
+  return { nodes: buildParagraph(plines, ctx), consumed };
 }
 
-function buildParagraph(plines: Line[]): BlockNode[] {
-  // A paragraph that is a single standalone image becomes a block image.
+function buildParagraph(plines: Line[], ctx: ParseContext): BlockNode[] {
+  // A trailing `^blockid` on the final line tags this block.
+  let trailingBlockId: string | undefined;
+  const lastRaw = plines[plines.length - 1].text;
+  const trailing = lastRaw.match(/^(.*\S)\s+\^([a-zA-Z0-9_-]+)\s*$/);
+  if (trailing) {
+    trailingBlockId = trailing[2];
+    plines[plines.length - 1] = {
+      text: trailing[1],
+      number: plines[plines.length - 1].number,
+    };
+  }
+
+  // Single line: parse the inlines exactly once (parsing has side effects —
+  // inline footnotes register definitions — so a second parse would duplicate
+  // them). A standalone image becomes a block image.
   if (plines.length === 1) {
-    const inline = parseInline(plines[0].text.trim());
+    const inline = parseInline(plines[0].text.trim(), ctx.inline);
     if (inline.length === 1 && inline[0].type === "inlineImage") {
       const img = inline[0];
       const block: ImageBlockNode = {
@@ -435,8 +491,16 @@ function buildParagraph(plines: Line[]): BlockNode[] {
       };
       if (img.width !== undefined) block.width = img.width;
       if (img.height !== undefined) block.height = img.height;
+      if (trailingBlockId) block.blockId = trailingBlockId;
       return [block];
     }
+    const single: ParagraphNode = {
+      type: "paragraph",
+      children: inline,
+      position: { line: plines[0].number },
+    };
+    if (trailingBlockId) single.blockId = trailingBlockId;
+    return [single];
   }
 
   const children = [];
@@ -448,7 +512,7 @@ function buildParagraph(plines: Line[]): BlockNode[] {
       hard = true;
       t = t.slice(0, -1);
     }
-    children.push(...parseInline(t.trim()));
+    children.push(...parseInline(t.trim(), ctx.inline));
     if (k < plines.length - 1) children.push({ type: "lineBreak" as const, hard });
   }
 
@@ -457,5 +521,6 @@ function buildParagraph(plines: Line[]): BlockNode[] {
     children,
     position: { line: plines[0].number },
   };
+  if (trailingBlockId) node.blockId = trailingBlockId;
   return [node];
 }
