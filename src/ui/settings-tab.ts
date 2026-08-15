@@ -3,14 +3,16 @@
 // The settings tab (§6.4): General, Word, PDF, HTML, Advanced, Licence and
 // About. Licence fields exist here but activation logic lands in Stage 8.
 
-import { App, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
 import type { ImageDpi, PageSize } from "../core/options";
 import type { TrueExportSettings } from "./settings";
+import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
 
 export interface SettingsHost {
   settings: TrueExportSettings;
   saveSettings(): Promise<void>;
+  licence: LicenceManager;
 }
 
 const PAGE_SIZES: Record<PageSize, string> = { A4: "A4", Letter: "Letter", Legal: "Legal" };
@@ -112,6 +114,25 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
+    // Reference DOCX is Pro-gated: enabled only when activated (§8). The gate is
+    // real; the renderer integration is still pending.
+    new Setting(containerEl)
+      .setName("Reference DOCX (house style)")
+      .setDesc(
+        this.host.licence.isActivated
+          ? "Path to a .docx whose styles are applied. Rendering integration is pending."
+          : "Requires TrueExport Pro.",
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder("templates/house-style.docx")
+          .setValue(s.referenceDocxPath)
+          .setDisabled(!this.host.licence.isActivated)
+          .onChange((v) => {
+            s.referenceDocxPath = v;
+            save();
+          }),
+      );
 
     // PDF
     new Setting(containerEl).setName("PDF").setHeading();
@@ -139,6 +160,20 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
+    new Setting(containerEl)
+      .setName("Margins (inches)")
+      .addText((t) =>
+        t.setValue(String(s.pdfMargins)).onChange((v) => {
+          const n = Number(v);
+          if (!Number.isNaN(n) && n >= 0) {
+            s.pdfMargins = n;
+            save();
+          } else {
+            // Reject invalid input by snapping the field back to the stored value.
+            t.setValue(String(s.pdfMargins));
+          }
+        }),
+      );
 
     // HTML
     new Setting(containerEl).setName("HTML").setHeading();
@@ -151,8 +186,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Max content width (rem)").addText((t) =>
       t.setValue(String(s.htmlMaxWidth)).onChange((v) => {
         const n = Number(v);
-        if (!Number.isNaN(n) && n > 0) s.htmlMaxWidth = n;
-        save();
+        if (!Number.isNaN(n) && n > 0) {
+          s.htmlMaxWidth = n;
+          save();
+        } else {
+          t.setValue(String(s.htmlMaxWidth));
+        }
       }),
     );
 
@@ -170,8 +209,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Max image width (px)").addText((t) =>
       t.setValue(String(s.maxImageWidthPx)).onChange((v) => {
         const n = Number(v);
-        if (!Number.isNaN(n) && n > 0) s.maxImageWidthPx = n;
-        save();
+        if (!Number.isNaN(n) && n > 0) {
+          s.maxImageWidthPx = n;
+          save();
+        } else {
+          t.setValue(String(s.maxImageWidthPx));
+        }
       }),
     );
     new Setting(containerEl)
@@ -186,22 +229,49 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Transclusion depth").addText((t) =>
       t.setValue(String(s.transclusionDepth)).onChange((v) => {
         const n = Number(v);
-        if (Number.isInteger(n) && n > 0) s.transclusionDepth = n;
-        save();
+        if (Number.isInteger(n) && n > 0) {
+          s.transclusionDepth = n;
+          save();
+        } else {
+          t.setValue(String(s.transclusionDepth));
+        }
       }),
     );
 
     // Licence (fields only; activation is Stage 8)
+    const licence = this.host.licence;
     new Setting(containerEl).setName("Licence").setHeading();
     new Setting(containerEl)
       .setName("Licence key")
-      .setDesc(s.licenceActivated ? "Pro is active." : "Enter your TrueExport Pro key.")
+      .setDesc(
+        licence.isActivated
+          ? `Pro is active${licence.deviceCount > 0 ? ` · ${licence.deviceCount} device(s)` : ""}.`
+          : "Enter your TrueExport Pro key, then click Activate.",
+      )
       .addText((t) =>
-        t.setValue(s.licenceKey).onChange((v) => {
-          s.licenceKey = v;
-          save();
-        }),
-      );
+        t
+          .setValue(s.licenceKey)
+          .setDisabled(licence.isActivated)
+          .onChange((v) => {
+            s.licenceKey = v;
+            save();
+          }),
+      )
+      .addButton((b) => {
+        b.setButtonText(licence.isActivated ? "Deactivate" : "Activate")
+          .setCta()
+          .onClick(async () => {
+            if (licence.isActivated) {
+              await licence.deactivate();
+              this.display();
+              return;
+            }
+            b.setDisabled(true).setButtonText("Activating…");
+            const outcome = await licence.activate(s.licenceKey);
+            new Notice(outcome.message);
+            this.display();
+          });
+      });
     new Setting(containerEl)
       .setName("Get TrueExport Pro")
       .addButton((b) =>

@@ -29,10 +29,14 @@ export interface TrueExportSettings {
   wordPageSize: PageSize;
   frontmatterMode: FrontmatterMode;
   embedFonts: boolean;
+  /** Pro: path to a reference .docx whose styles are applied (integration pending). */
+  referenceDocxPath: string;
   // PDF
   pdfPageSize: PageSize;
   pdfOrientation: Orientation;
   pdfPageNumbers: boolean;
+  /** Uniform page margin for PDF, in inches. */
+  pdfMargins: number;
   // HTML
   htmlDarkMode: boolean;
   htmlMaxWidth: number;
@@ -60,9 +64,11 @@ export const DEFAULT_SETTINGS: TrueExportSettings = {
   wordPageSize: "A4",
   frontmatterMode: "strip",
   embedFonts: false,
+  referenceDocxPath: "",
   pdfPageSize: "A4",
   pdfOrientation: "portrait",
   pdfPageNumbers: false,
+  pdfMargins: 1,
   htmlDarkMode: true,
   htmlMaxWidth: 45,
   imageDpi: 150,

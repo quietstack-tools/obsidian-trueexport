@@ -339,6 +339,11 @@ export class TextComponent extends ValueComponent<string> {
     this.inputEl.addEventListener("input", () => cb(this.inputEl.value));
     return this;
   }
+  setDisabled(d: boolean) {
+    super.setDisabled(d);
+    this.inputEl.disabled = d;
+    return this;
+  }
 }
 
 export class ToggleComponent extends ValueComponent<boolean> {
@@ -370,6 +375,11 @@ export class DropdownComponent extends ValueComponent<string> {
   onChange(cb: (v: string) => void) {
     super.onChange(cb);
     this.selectEl.addEventListener("change", () => cb(this.selectEl.value));
+    return this;
+  }
+  setDisabled(d: boolean) {
+    super.setDisabled(d);
+    this.selectEl.disabled = d;
     return this;
   }
 }
