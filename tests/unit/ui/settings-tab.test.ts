@@ -31,6 +31,12 @@ function findSetting(tab: TrueExportSettingTab, name: string): Element {
   )!;
 }
 
+function hasSetting(tab: TrueExportSettingTab, name: string): boolean {
+  return Array.from(tab.containerEl.querySelectorAll(".setting-item")).some(
+    (el) => el.querySelector(".setting-item-name")?.textContent === name,
+  );
+}
+
 describe("TrueExportSettingTab", () => {
   it("renders all setting sections", () => {
     const { tab } = makeTab();
@@ -125,5 +131,23 @@ describe("TrueExportSettingTab — licence + Pro gating", () => {
     )!;
     activateBtn.click();
     expect(licence.activate).toHaveBeenCalledWith("MY-KEY");
+  });
+
+  it("shows the 'Get TrueExport Pro' upsell only when not activated", () => {
+    const free = makeTab(false);
+    free.tab.display();
+    expect(hasSetting(free.tab, "Get TrueExport Pro")).toBe(true);
+    expect(hasSetting(free.tab, "Manage licence")).toBe(false);
+  });
+
+  it("shows 'Manage licence' (not the upsell) when activated", () => {
+    const pro = makeTab(true);
+    pro.tab.display();
+    expect(hasSetting(pro.tab, "Manage licence")).toBe(true);
+    expect(hasSetting(pro.tab, "Get TrueExport Pro")).toBe(false);
+    const portalLink = Array.from(pro.tab.containerEl.querySelectorAll("button")).find(
+      (b) => b.textContent === "Open portal",
+    );
+    expect(portalLink).toBeDefined();
   });
 });
