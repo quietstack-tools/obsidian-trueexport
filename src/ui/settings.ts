@@ -33,6 +33,8 @@ export interface TrueExportSettings {
   pdfPageSize: PageSize;
   pdfOrientation: Orientation;
   pdfPageNumbers: boolean;
+  /** Uniform page margin for PDF, in inches. */
+  pdfMargins: number;
   // HTML
   htmlDarkMode: boolean;
   htmlMaxWidth: number;
@@ -63,6 +65,7 @@ export const DEFAULT_SETTINGS: TrueExportSettings = {
   pdfPageSize: "A4",
   pdfOrientation: "portrait",
   pdfPageNumbers: false,
+  pdfMargins: 1,
   htmlDarkMode: true,
   htmlMaxWidth: 45,
   imageDpi: 150,

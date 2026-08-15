@@ -12,6 +12,7 @@ import { parseMarkdown } from "./core/parser";
 import { resolveDocument } from "./core/resolver";
 import { renderDocx, type DocxDeps } from "./docx";
 import { renderHtml } from "./html";
+import { renderPdf, type HtmlToPdf } from "./pdf";
 import {
   FORMAT_EXTENSIONS,
   renderFilename,
@@ -23,6 +24,14 @@ export interface VaultWriter {
   exists(path: string): boolean;
   writeText(path: string, data: string): Promise<void>;
   writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+}
+
+/**
+ * Renderer dependencies. `htmlToPdf` is present only on desktop; its absence is
+ * how the export path enforces "PDF is desktop-only" (§7.5).
+ */
+export interface ExportDeps extends DocxDeps {
+  htmlToPdf?: HtmlToPdf;
 }
 
 export interface ExportResult {
@@ -37,7 +46,7 @@ export interface ExportParams {
   sourcePath: string;
   format: ExportFormat;
   template: TemplateId;
-  deps?: DocxDeps;
+  deps?: ExportDeps;
   /** Injectable clock for deterministic filenames in tests. */
   now?: Date;
 }
@@ -112,7 +121,22 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
     text = renderHtml(doc, options, { pro });
     binary = false;
   } else if (format === "pdf") {
-    throw new Error("PDF export isn't available yet — it's coming in a future update.");
+    // The seam is only provided on desktop, so its absence means mobile (§7.5).
+    if (!deps?.htmlToPdf) {
+      throw new Error("PDF export is only available on desktop. Use Word or HTML on mobile.");
+    }
+    const html = renderHtml(doc, options, { pro });
+    bytes = await renderPdf(
+      html,
+      {
+        pageSize: settings.pdfPageSize,
+        orientation: settings.pdfOrientation,
+        margins: settings.pdfMargins,
+        pageNumbers: settings.pdfPageNumbers,
+      },
+      deps.htmlToPdf,
+    );
+    binary = true;
   } else {
     throw new Error(`Unknown export format: ${format}`);
   }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as JSZip from "jszip";
 import { exportNote, scanNote, type VaultWriter } from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
@@ -95,17 +95,39 @@ describe("exportNote", () => {
     expect(result.outputPath).toBe("Note-2026-08-15.html");
   });
 
-  it("rejects PDF with an actionable message (not yet implemented)", async () => {
+  it("renders PDF through the injected seam and writes the bytes", async () => {
+    const writer = new FakeWriter();
+    const htmlToPdf = vi.fn(async (_html: string, _opts: unknown) => new TextEncoder().encode("%PDF-1.7").buffer);
+    const result = await exportNote({
+      adapter: adapter(),
+      writer,
+      settings: settings(),
+      sourcePath: "folder/Note.md",
+      format: "pdf",
+      template: "default",
+      deps: { htmlToPdf },
+    });
+    expect(result.outputPath).toBe("folder/Note.pdf");
+    expect(htmlToPdf).toHaveBeenCalledTimes(1);
+    // The seam receives the self-contained HTML output.
+    expect(htmlToPdf.mock.calls[0][0]).toContain("<!DOCTYPE html>");
+    expect(writer.files.has("folder/Note.pdf")).toBe(true);
+  });
+
+  it("rejects PDF as desktop-only when no seam is provided (mobile)", async () => {
+    const writer = new FakeWriter();
     await expect(
       exportNote({
         adapter: adapter(),
-        writer: new FakeWriter(),
+        writer,
         settings: settings(),
         sourcePath: "folder/Note.md",
         format: "pdf",
         template: "default",
+        deps: {},
       }),
-    ).rejects.toThrow(/PDF export isn't available yet/);
+    ).rejects.toThrow(/desktop/);
+    expect(writer.files.size).toBe(0);
   });
 
   it("throws (and writes nothing) when the note cannot be read", async () => {

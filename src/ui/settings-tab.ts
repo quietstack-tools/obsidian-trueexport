@@ -139,6 +139,15 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
+    new Setting(containerEl)
+      .setName("Margins (inches)")
+      .addText((t) =>
+        t.setValue(String(s.pdfMargins)).onChange((v) => {
+          const n = Number(v);
+          if (!Number.isNaN(n) && n >= 0) s.pdfMargins = n;
+          save();
+        }),
+      );
 
     // HTML
     new Setting(containerEl).setName("HTML").setHeading();

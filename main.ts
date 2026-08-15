@@ -7,11 +7,11 @@
 
 import { Notice, Plugin, Platform, TFile, TFolder, type Menu } from "obsidian";
 import { ObsidianVaultAdapter, createSvgRasterizer } from "./src/obsidian-adapter";
+import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import type { VaultAdapter } from "./src/core/adapter";
-import type { DocxDeps } from "./src/docx";
 import type { ExportFormat, TemplateId } from "./src/core/options";
 import type { ExportWarning } from "./src/core/warnings";
-import { exportNote, scanNote, basename, type VaultWriter } from "./src/export";
+import { exportNote, scanNote, basename, type ExportDeps, type VaultWriter } from "./src/export";
 import {
   DEFAULT_SETTINGS,
   type TrueExportSettings,
@@ -25,12 +25,16 @@ const PRO_URL = "https://quietstack.tools/trueexport";
 export default class TrueExportPlugin extends Plugin implements ExportModalHost {
   settings: TrueExportSettings = { ...DEFAULT_SETTINGS };
   private adapter!: VaultAdapter;
-  private deps!: DocxDeps;
+  private deps!: ExportDeps;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.adapter = new ObsidianVaultAdapter(this.app);
-    this.deps = { rasterizeSvg: createSvgRasterizer() };
+    this.deps = {
+      rasterizeSvg: createSvgRasterizer(),
+      // PDF is desktop-only: only wire the Electron seam there (§7.5).
+      ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
+    };
 
     this.addCommand({
       id: "export-docx",
