@@ -6,7 +6,7 @@
 // nothing to leak (§10).
 
 import { Notice, Plugin, Platform, TFile, TFolder, type Menu } from "obsidian";
-import { ObsidianVaultAdapter, createSvgRasterizer } from "./src/obsidian-adapter";
+import { ObsidianVaultAdapter, createSvgRasterizer, createMermaidRenderer } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
@@ -44,6 +44,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
     this.adapter = new ObsidianVaultAdapter(this.app);
     this.deps = {
       rasterizeSvg: createSvgRasterizer(),
+      mermaidToSvg: createMermaidRenderer(this.app),
       // PDF is desktop-only: only wire the Electron seam there (§7.5).
       ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
     };

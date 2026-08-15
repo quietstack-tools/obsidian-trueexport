@@ -8,8 +8,10 @@ import type { IdmDocument } from "./core/model/document";
 import type { VaultAdapter } from "./core/adapter";
 import type { ExportFormat, ExportOptions, TemplateId } from "./core/options";
 import { WarningCollector, type ExportWarning } from "./core/warnings";
+import type { BlockNode, InlineNode } from "./core/model/nodes";
 import { parseMarkdown } from "./core/parser";
 import { resolveDocument } from "./core/resolver";
+import { parseLatex } from "./math/parse";
 import { renderDocx, type DocxDeps } from "./docx";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
@@ -32,6 +34,8 @@ export interface VaultWriter {
  */
 export interface ExportDeps extends DocxDeps {
   htmlToPdf?: HtmlToPdf;
+  /** Render a Mermaid diagram to SVG via Obsidian's Mermaid instance (§4.11). */
+  mermaidToSvg?: (source: string) => Promise<string>;
 }
 
 export interface ExportResult {
@@ -79,12 +83,109 @@ async function buildDocument(
     throw new Error(`Could not read note "${sourcePath}". Make sure it still exists.`);
   }
   const parsed = parseMarkdown(content, sourcePath, options, warnings);
-  return resolveDocument(parsed, sourcePath, {
+  const doc = await resolveDocument(parsed, sourcePath, {
     adapter,
     options,
     warnings,
     includedNotePaths: new Set([sourcePath]),
   });
+  // Warn for any equation that can't be converted (it renders as text; §4.10).
+  collectMathWarnings(doc.blocks, warnings, sourcePath);
+  return doc;
+}
+
+function truncate(text: string): string {
+  return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+}
+
+function collectMathWarnings(blocks: BlockNode[], warnings: WarningCollector, sourcePath: string): void {
+  const check = (latex: string, line?: number): void => {
+    try {
+      parseLatex(latex);
+    } catch {
+      warnings.add({
+        construct: "math",
+        message: `Equation "${truncate(latex)}" couldn't be converted and was shown as text.`,
+        line,
+        sourcePath,
+      });
+    }
+  };
+  const inlineWalk = (nodes: InlineNode[], line?: number): void => {
+    for (const n of nodes) {
+      if (n.type === "mathInline") check(n.latex, line);
+      else if ("children" in n && Array.isArray(n.children)) inlineWalk(n.children, line);
+    }
+  };
+  const blockWalk = (bs: BlockNode[]): void => {
+    for (const b of bs) {
+      const line = b.position?.line;
+      if (b.type === "mathBlock") check(b.latex, line);
+      else if (b.type === "paragraph" || b.type === "heading") inlineWalk(b.children, line);
+      else if (b.type === "callout") {
+        inlineWalk(b.title, line);
+        blockWalk(b.children);
+      } else if (b.type === "blockquote") blockWalk(b.children);
+      else if (b.type === "list") b.children.forEach((it) => blockWalk(it.children));
+      else if (b.type === "table")
+        [b.header, ...b.rows].forEach((r) => r.cells.forEach((c) => inlineWalk(c.children, line)));
+    }
+  };
+  blockWalk(blocks);
+}
+
+/** Render Mermaid code blocks to SVG images; failure/absence → code + warning (§4.11). */
+async function resolveMermaid(
+  blocks: BlockNode[],
+  deps: ExportDeps | undefined,
+  warnings: WarningCollector,
+  sourcePath: string,
+): Promise<BlockNode[]> {
+  const convert = async (node: BlockNode): Promise<BlockNode> => {
+    if (node.type !== "codeBlock" || (node.language ?? "").toLowerCase() !== "mermaid") return node;
+    if (deps?.mermaidToSvg) {
+      try {
+        const svg = await deps.mermaidToSvg(node.content);
+        const bytes = new TextEncoder().encode(svg);
+        return {
+          type: "imageBlock",
+          resource: {
+            kind: "binary",
+            data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+            mimeType: "image/svg+xml",
+            originalPath: "mermaid.svg",
+          },
+          alt: "Mermaid diagram",
+          position: node.position,
+        };
+      } catch {
+        // fall through to the code-block fallback
+      }
+    }
+    warnings.add({
+      construct: "mermaid",
+      message: "Mermaid diagram couldn't be rendered and was shown as its source.",
+      line: node.position?.line,
+      sourcePath,
+    });
+    return node;
+  };
+
+  const walk = async (bs: BlockNode[]): Promise<BlockNode[]> => {
+    const out: BlockNode[] = [];
+    for (const b of bs) {
+      if (b.type === "blockquote" || b.type === "callout") out.push({ ...b, children: await walk(b.children) });
+      else if (b.type === "list")
+        out.push({
+          ...b,
+          children: await Promise.all(b.children.map(async (it) => ({ ...it, children: await walk(it.children) }))),
+        });
+      else out.push(await convert(b));
+    }
+    return out;
+  };
+
+  return walk(blocks);
 }
 
 /** Pre-scan a note for warnings without rendering (drives the modal's row). */
@@ -107,6 +208,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const options = settingsToExportOptions(settings, format, template);
   const warnings = new WarningCollector();
   const doc = await buildDocument(adapter, sourcePath, options, warnings);
+  doc.blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
   const pro = settings.licenceActivated;
 
   // Render fully in memory first; only then write, so a failure never leaves a

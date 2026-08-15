@@ -12,7 +12,9 @@ import {
   InternalHyperlink,
   FootnoteReferenceRun,
   Bookmark,
+  Math,
 } from "docx";
+import { latexToMath } from "./math";
 import type {
   ImageBlockNode,
   InlineImageNode,
@@ -30,7 +32,8 @@ export type InlineRun =
   | ExternalHyperlink
   | InternalHyperlink
   | FootnoteReferenceRun
-  | Bookmark;
+  | Bookmark
+  | Math;
 
 interface Fmt {
   bold?: boolean;
@@ -126,7 +129,12 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
         out.push(n.hard ? new TextRun({ break: 1, language: RUN_LANGUAGE }) : textRun(" ", fmt));
         break;
       case "mathInline":
-        out.push(new TextRun({ text: n.latex, style: "Code", language: RUN_LANGUAGE }));
+        try {
+          out.push(latexToMath(n.latex));
+        } catch {
+          // Conversion failure → raw LaTeX in monospace (§4.10).
+          out.push(new TextRun({ text: n.latex, style: "Code", language: RUN_LANGUAGE }));
+        }
         break;
     }
   }

@@ -4,7 +4,7 @@
 // the canvas-based SVG rasteriser for the DOCX renderer. This is the only file
 // besides src/licence/ that may import from "obsidian" directly (R1/R2).
 
-import { App, TFile, normalizePath } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile, normalizePath } from "obsidian";
 import type { VaultAdapter } from "./core/adapter";
 
 const MIME_TYPES: Record<string, string> = {
@@ -91,6 +91,27 @@ export function createSvgRasterizer(): (svg: ArrayBuffer, scale: number) => Prom
       return { data: png };
     } finally {
       URL.revokeObjectURL(url);
+    }
+  };
+}
+
+/**
+ * Render a Mermaid diagram to SVG using Obsidian's own Mermaid instance (§4.11),
+ * by rendering a fenced mermaid block via MarkdownRenderer and extracting the
+ * SVG. Version-dependent and DOM-based → a manual-verification seam; failure is
+ * contained (the export layer degrades to a code block + warning).
+ */
+export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
+  return async (source) => {
+    const el = document.createElement("div");
+    const component = new Component();
+    try {
+      await MarkdownRenderer.render(app, "```mermaid\n" + source + "\n```", el, "", component);
+      const svg = el.querySelector("svg");
+      if (!svg) throw new Error("Mermaid produced no SVG");
+      return svg.outerHTML;
+    } finally {
+      component.unload();
     }
   };
 }
