@@ -41,19 +41,40 @@ describe("TrueExportSettingTab", () => {
     expect(host.saveSettings).toHaveBeenCalled();
   });
 
-  it("rejects an invalid PDF margin and snaps the field back to the stored value", () => {
+  function fieldInput(tab: TrueExportSettingTab, name: string): HTMLInputElement {
+    const item = Array.from(tab.containerEl.querySelectorAll(".setting-item")).find(
+      (el) => el.querySelector(".setting-item-name")?.textContent === name,
+    )!;
+    return item.querySelector("input") as HTMLInputElement;
+  }
+
+  it.each([
+    ["Margins (inches)", "pdfMargins", 1, "-1"],
+    ["Max content width (rem)", "htmlMaxWidth", 45, "abc"],
+    ["Max image width (px)", "maxImageWidthPx", 1200, "-5"],
+    ["Transclusion depth", "transclusionDepth", 5, "2.5"],
+  ] as const)(
+    "rejects invalid input for %s and snaps the field back to the stored value",
+    (name, key, defaultValue, invalid) => {
+      const { tab, host } = makeTab();
+      tab.display();
+      const input = fieldInput(tab, name);
+
+      input.value = invalid;
+      input.dispatchEvent(new Event("input"));
+
+      expect(host.settings[key]).toBe(defaultValue); // never stored
+      expect(input.value).toBe(String(defaultValue)); // field snapped back
+    },
+  );
+
+  it("still persists a valid numeric change", () => {
     const { tab, host } = makeTab();
     tab.display();
-    const items = Array.from(tab.containerEl.querySelectorAll(".setting-item"));
-    const marginsItem = items.find(
-      (el) => el.querySelector(".setting-item-name")?.textContent === "Margins (inches)",
-    )!;
-    const input = marginsItem.querySelector("input") as HTMLInputElement;
-
-    input.value = "-1";
+    const input = fieldInput(tab, "Transclusion depth");
+    input.value = "3";
     input.dispatchEvent(new Event("input"));
-
-    expect(host.settings.pdfMargins).toBe(1); // never stored
-    expect(input.value).toBe("1"); // field snapped back, no visible divergence
+    expect(host.settings.transclusionDepth).toBe(3);
+    expect(host.saveSettings).toHaveBeenCalled();
   });
 });

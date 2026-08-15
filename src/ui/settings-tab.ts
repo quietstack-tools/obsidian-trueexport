@@ -165,8 +165,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Max content width (rem)").addText((t) =>
       t.setValue(String(s.htmlMaxWidth)).onChange((v) => {
         const n = Number(v);
-        if (!Number.isNaN(n) && n > 0) s.htmlMaxWidth = n;
-        save();
+        if (!Number.isNaN(n) && n > 0) {
+          s.htmlMaxWidth = n;
+          save();
+        } else {
+          t.setValue(String(s.htmlMaxWidth));
+        }
       }),
     );
 
@@ -184,8 +188,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Max image width (px)").addText((t) =>
       t.setValue(String(s.maxImageWidthPx)).onChange((v) => {
         const n = Number(v);
-        if (!Number.isNaN(n) && n > 0) s.maxImageWidthPx = n;
-        save();
+        if (!Number.isNaN(n) && n > 0) {
+          s.maxImageWidthPx = n;
+          save();
+        } else {
+          t.setValue(String(s.maxImageWidthPx));
+        }
       }),
     );
     new Setting(containerEl)
@@ -200,8 +208,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Transclusion depth").addText((t) =>
       t.setValue(String(s.transclusionDepth)).onChange((v) => {
         const n = Number(v);
-        if (Number.isInteger(n) && n > 0) s.transclusionDepth = n;
-        save();
+        if (Number.isInteger(n) && n > 0) {
+          s.transclusionDepth = n;
+          save();
+        } else {
+          t.setValue(String(s.transclusionDepth));
+        }
       }),
     );
 
