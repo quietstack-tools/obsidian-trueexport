@@ -22,6 +22,8 @@ import type {
   TableNode,
 } from "../core/model/nodes";
 import type { ExportOptions } from "../core/options";
+import { parseLatex } from "../math/parse";
+import { mathmlDocument } from "./math";
 import { buildCss } from "./css";
 
 export interface HtmlRenderOptions {
@@ -110,11 +112,12 @@ function renderBlock(block: BlockNode): string {
   switch (block.type) {
     case "heading": {
       const id = block.id ? ` id="${escapeAttr(block.id)}"` : "";
-      return `<h${block.level}${id}>${renderInline(block.children)}</h${block.level}>`;
+      // dir="auto" lets the browser's bidi algorithm handle RTL text (§4.1).
+      return `<h${block.level}${id} dir="auto">${renderInline(block.children)}</h${block.level}>`;
     }
     case "paragraph": {
       const id = block.blockId ? ` id="${escapeAttr(block.blockId)}"` : "";
-      return `<p${id}>${renderInline(block.children)}</p>`;
+      return `<p${id} dir="auto">${renderInline(block.children)}</p>`;
     }
     case "list":
       return renderList(block);
@@ -136,7 +139,7 @@ function renderBlock(block: BlockNode): string {
       // HTML passes through to HTML (the user's own note content).
       return block.raw;
     case "mathBlock":
-      return `<div class="math" data-latex="${escapeAttr(block.latex)}">${escapeHtml(block.latex)}</div>`;
+      return renderMath(block.latex, true);
     case "unsupported":
       return `<div class="unsupported">${escapeHtml(block.reason)}</div>`;
     default:
@@ -211,6 +214,18 @@ function renderInline(nodes: InlineNode[]): string {
   return nodes.map(renderInlineNode).join("");
 }
 
+/** MathML when the LaTeX converts; otherwise raw LaTeX in monospace (§4.10). */
+function renderMath(latex: string, block: boolean): string {
+  try {
+    const ast = parseLatex(latex);
+    const mathml = mathmlDocument(ast, latex, block);
+    return block ? `<div class="math-block">${mathml}</div>` : mathml;
+  } catch {
+    const code = `<code class="math-fallback" data-latex="${escapeAttr(latex)}">${escapeHtml(latex)}</code>`;
+    return block ? `<div class="math-block">${code}</div>` : code;
+  }
+}
+
 function renderInlineNode(node: InlineNode): string {
   switch (node.type) {
     case "text":
@@ -239,7 +254,7 @@ function renderInlineNode(node: InlineNode): string {
     case "lineBreak":
       return node.hard ? "<br>\n" : "\n";
     case "mathInline":
-      return `<span class="math" data-latex="${escapeAttr(node.latex)}">${escapeHtml(node.latex)}</span>`;
+      return renderMath(node.latex, false);
     default:
       return "";
   }

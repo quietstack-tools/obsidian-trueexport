@@ -139,6 +139,19 @@ function scan(text: string, ctx?: InlineContext): Chunk[] {
       continue;
     }
 
+    // Inline math $…$ (no space after the opening $, matching Obsidian; §4.10).
+    if (c === "$") {
+      const math = matchInlineMath(text, i);
+      if (math) {
+        pushNode({ type: "mathInline", latex: math.latex });
+        i = math.end;
+        continue;
+      }
+      pushText("$");
+      i += 1;
+      continue;
+    }
+
     // Transclusion ![[ ... ]] before image ![alt](dest).
     if (c === "!" && text[i + 1] === "[" && text[i + 2] === "[") {
       const wiki = matchWiki(text, i + 1);
@@ -281,6 +294,27 @@ function makeDelim(
   }
 
   return { kind: "delim", char, count, canOpen, canClose };
+}
+
+/** Match `$…$` inline math starting at the opening `$`. */
+function matchInlineMath(text: string, start: number): { latex: string; end: number } | null {
+  const next = text[start + 1];
+  // Obsidian: no space right after the opening $, and $$ is block-level.
+  if (next === undefined || next === " " || next === "$") return null;
+  let i = start + 1;
+  let latex = "";
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      latex += ch + text[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === "$") return { latex, end: i + 1 };
+    latex += ch;
+    i += 1;
+  }
+  return null;
 }
 
 function matchCodeSpan(text: string, start: number): { value: string; end: number } | null {

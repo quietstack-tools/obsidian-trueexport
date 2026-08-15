@@ -88,6 +88,14 @@ graph TD; A-->B;
 
 An inline ![tiny](pic.png) image too.
 
+## Math
+
+Inline math $E = mc^2$ and a fraction $\frac{a}{b}$ in a sentence.
+
+$$
+\sqrt{x_i^2 + y^2} = \alpha \cdot \beta
+$$
+
 ## Transclusion
 
 ![[Included]]

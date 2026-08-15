@@ -28,7 +28,10 @@ import type {
   ImageBlockNode,
 } from "../core/model/nodes";
 import { renderInline, buildImage, sanitizeAnchor, type InlineRun } from "./inline";
+import { latexToMath } from "./math";
 import { renderTable } from "./table";
+import { toPlainText } from "../core/parser/inline";
+import { hasRtl } from "../core/util/text";
 import { COLORS, CODE_FONT, RUN_LANGUAGE, calloutColor, tint } from "./styles";
 import type { RenderContext } from "./context";
 
@@ -73,11 +76,23 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
         ctx.bookmarks.add(block.id);
         children = [new Bookmark({ id: sanitizeAnchor(block.id), children: runs })];
       }
-      return [new Paragraph({ heading: HEADING_LEVELS[block.level - 1], children })];
+      return [
+        new Paragraph({
+          heading: HEADING_LEVELS[block.level - 1],
+          bidirectional: hasRtl(toPlainText(block.children)) || undefined,
+          children,
+        }),
+      ];
     }
     case "paragraph": {
       const runs = wrapBookmark(block.blockId, renderInline(block.children, ctx), ctx);
-      return [new Paragraph({ style: opts.quote ? "Quote" : undefined, children: runs })];
+      return [
+        new Paragraph({
+          style: opts.quote ? "Quote" : undefined,
+          bidirectional: hasRtl(toPlainText(block.children)) || undefined,
+          children: runs,
+        }),
+      ];
     }
     case "list":
       return renderList(block, ctx, opts.depth ?? 0);
@@ -105,9 +120,14 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
         }),
       ];
     case "mathBlock":
-      return [
-        new Paragraph({ children: [new TextRun({ text: block.latex, style: "Code", language: RUN_LANGUAGE })] }),
-      ];
+      try {
+        return [new Paragraph({ alignment: AlignmentType.CENTER, children: [latexToMath(block.latex)] })];
+      } catch {
+        // Conversion failure → raw LaTeX in monospace (§4.10).
+        return [
+          new Paragraph({ children: [new TextRun({ text: block.latex, style: "Code", language: RUN_LANGUAGE })] }),
+        ];
+      }
     case "unsupported":
       return [
         new Paragraph({

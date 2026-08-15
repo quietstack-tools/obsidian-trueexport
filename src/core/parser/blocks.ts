@@ -164,6 +164,13 @@ export function parseBlocks(lines: Line[], ctx: ParseContext): BlockNode[] {
       continue;
     }
 
+    if (/^ {0,3}\$\$/.test(line.text)) {
+      const math = parseMathBlock(lines, i);
+      blocks.push(math.node);
+      i += math.consumed;
+      continue;
+    }
+
     if (isThematicBreak(line.text)) {
       blocks.push({ type: "thematicBreak", position: { line: line.number } });
       i++;
@@ -262,6 +269,42 @@ function tryFencedCode(
     position: { line: startLine },
   };
   return { node, consumed };
+}
+
+// ---- Block math ($$…$$) ----
+
+function parseMathBlock(lines: Line[], start: number): { node: BlockNode; consumed: number } {
+  const startLine = lines[start].number;
+  const first = lines[start].text.replace(/^ {0,3}/, "");
+  const afterOpen = first.slice(2);
+
+  // Single line: $$ … $$
+  const closeIdx = afterOpen.indexOf("$$");
+  if (closeIdx !== -1) {
+    return {
+      node: { type: "mathBlock", latex: afterOpen.slice(0, closeIdx).trim(), position: { line: startLine } },
+      consumed: 1,
+    };
+  }
+
+  // Multi-line: $$ then lines until a line containing $$.
+  const content: string[] = [];
+  if (afterOpen.trim() !== "") content.push(afterOpen);
+  let i = start + 1;
+  for (; i < lines.length; i++) {
+    const t = lines[i].text;
+    const idx = t.indexOf("$$");
+    if (idx !== -1) {
+      if (t.slice(0, idx).trim() !== "") content.push(t.slice(0, idx));
+      i++;
+      break;
+    }
+    content.push(t);
+  }
+  return {
+    node: { type: "mathBlock", latex: content.join("\n").trim(), position: { line: startLine } },
+    consumed: i - start,
+  };
 }
 
 // ---- Thematic break ----
@@ -431,6 +474,7 @@ function startsBlock(text: string, next: string | undefined): boolean {
   if (/^ {0,3}(`{3,}|~{3,})/.test(text)) return true;
   if (isThematicBreak(text)) return true;
   if (/^ {0,3}#{1,6}(?: |$)/.test(text)) return true;
+  if (/^ {0,3}\$\$/.test(text)) return true;
   if (/^ {0,3}>/.test(text)) return true;
   if (matchMarker(text)) return true;
   if (matchBlockId(text) !== null) return true;
