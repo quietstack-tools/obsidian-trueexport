@@ -10,8 +10,7 @@ import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
 
 // Polar's documented static customer-portal URL (customer authenticates by
-// email on the page — no pre-session needed). Verify the org slug against the
-// Polar organisation settings before release; "quietstack" matches the domain.
+// email on the page — no pre-session needed).
 const POLAR_PORTAL_URL = "https://polar.sh/quietstack/portal";
 
 export interface SettingsHost {
