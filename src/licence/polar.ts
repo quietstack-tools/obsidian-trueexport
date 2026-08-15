@@ -4,16 +4,10 @@
 // (The first is the opt-in, default-off remote-image fetch.) Nothing else may
 // call fetch / XMLHttpRequest / requestUrl.
 //
-// ⚠️⚠️ NOT PRODUCTION READY ⚠️⚠️
-// POLAR_ORG_ID below is the literal placeholder from the spec. It MUST be
-// replaced with the real Polar organisation ID (a GTM-phase task, outside this
-// build) before Stage 8 can be considered complete or any release build is cut.
-//
 // Privacy (§7.2): note content is NEVER transmitted — only the licence key the
 // user typed, plus the (non-secret) organisation id.
 
-// ⚠️ PLACEHOLDER — replace before release. See file header.
-const POLAR_ORG_ID = "<your-organization-id>"; // not a secret
+const POLAR_ORG_ID = "08ae214f-e24b-4ade-8eb8-34bb29517994"; // not a secret
 
 const VALIDATE_URL = "https://api.polar.sh/v1/customer-portal/license-keys/validate";
 const TIMEOUT_MS = 10_000;

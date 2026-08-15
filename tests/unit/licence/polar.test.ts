@@ -72,6 +72,6 @@ describe("validateLicence", () => {
     expect(url).toBe("https://api.polar.sh/v1/customer-portal/license-keys/validate");
     expect(opts.method).toBe("POST");
     const body = JSON.parse(opts.body);
-    expect(body).toEqual({ key: "MYKEY-123", organization_id: "<your-organization-id>" });
+    expect(body).toEqual({ key: "MYKEY-123", organization_id: "08ae214f-e24b-4ade-8eb8-34bb29517994" });
   });
 });
