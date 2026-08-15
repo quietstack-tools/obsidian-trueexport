@@ -1,0 +1,154 @@
+// src/export.ts
+//
+// Export orchestration: read → parse → resolve → render → write. Kept free of
+// "obsidian" imports so it is unit-testable; vault writes go through the small
+// VaultWriter seam, which main.ts implements against app.vault.
+
+import type { IdmDocument } from "./core/model/document";
+import type { VaultAdapter } from "./core/adapter";
+import type { ExportFormat, ExportOptions, TemplateId } from "./core/options";
+import { WarningCollector, type ExportWarning } from "./core/warnings";
+import { parseMarkdown } from "./core/parser";
+import { resolveDocument } from "./core/resolver";
+import { renderDocx, type DocxDeps } from "./docx";
+import { renderHtml } from "./html";
+import {
+  FORMAT_EXTENSIONS,
+  renderFilename,
+  settingsToExportOptions,
+  type TrueExportSettings,
+} from "./ui/settings";
+
+export interface VaultWriter {
+  exists(path: string): boolean;
+  writeText(path: string, data: string): Promise<void>;
+  writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+}
+
+export interface ExportResult {
+  outputPath: string;
+  warnings: ExportWarning[];
+}
+
+export interface ExportParams {
+  adapter: VaultAdapter;
+  writer: VaultWriter;
+  settings: TrueExportSettings;
+  sourcePath: string;
+  format: ExportFormat;
+  template: TemplateId;
+  deps?: DocxDeps;
+  /** Injectable clock for deterministic filenames in tests. */
+  now?: Date;
+}
+
+function normalize(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\.\//, "");
+}
+
+function dirname(path: string): string {
+  const slash = normalize(path).lastIndexOf("/");
+  return slash === -1 ? "" : path.slice(0, slash);
+}
+
+export function basename(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+async function buildDocument(
+  adapter: VaultAdapter,
+  sourcePath: string,
+  options: ExportOptions,
+  warnings: WarningCollector,
+): Promise<IdmDocument> {
+  const content = await adapter.readNote(sourcePath);
+  if (content === null) {
+    throw new Error(`Could not read note "${sourcePath}". Make sure it still exists.`);
+  }
+  const parsed = parseMarkdown(content, sourcePath, options, warnings);
+  return resolveDocument(parsed, sourcePath, {
+    adapter,
+    options,
+    warnings,
+    includedNotePaths: new Set([sourcePath]),
+  });
+}
+
+/** Pre-scan a note for warnings without rendering (drives the modal's row). */
+export async function scanNote(
+  adapter: VaultAdapter,
+  settings: TrueExportSettings,
+  sourcePath: string,
+  format: ExportFormat = settings.defaultFormat,
+  template: TemplateId = settings.defaultTemplate,
+): Promise<ExportWarning[]> {
+  const options = settingsToExportOptions(settings, format, template);
+  const warnings = new WarningCollector();
+  await buildDocument(adapter, sourcePath, options, warnings);
+  return warnings.list();
+}
+
+export async function exportNote(params: ExportParams): Promise<ExportResult> {
+  const { adapter, writer, settings, sourcePath, format, template, deps } = params;
+  const now = params.now ?? new Date();
+  const options = settingsToExportOptions(settings, format, template);
+  const warnings = new WarningCollector();
+  const doc = await buildDocument(adapter, sourcePath, options, warnings);
+  const pro = settings.licenceActivated;
+
+  // Render fully in memory first; only then write, so a failure never leaves a
+  // partial file on disk (§7.4).
+  let binary: boolean;
+  let text = "";
+  let bytes: ArrayBuffer = new ArrayBuffer(0);
+  if (format === "docx") {
+    bytes = await renderDocx(doc, options, { deps, pro });
+    binary = true;
+  } else if (format === "html") {
+    text = renderHtml(doc, options, { pro });
+    binary = false;
+  } else if (format === "pdf") {
+    throw new Error("PDF export isn't available yet — it's coming in a future update.");
+  } else {
+    throw new Error(`Unknown export format: ${format}`);
+  }
+
+  const base = renderFilename(settings.filenamePattern, {
+    title: doc.title,
+    date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    time: `${pad(now.getHours())}${pad(now.getMinutes())}`,
+  });
+  const outputPath = uniqueOutputPath(writer, outputFolder(settings, sourcePath), base, FORMAT_EXTENSIONS[format]);
+
+  if (binary) await writer.writeBinary(outputPath, bytes);
+  else await writer.writeText(outputPath, text);
+
+  return { outputPath, warnings: warnings.list() };
+}
+
+function outputFolder(settings: TrueExportSettings, sourcePath: string): string {
+  switch (settings.outputLocation) {
+    case "vault-root":
+      return "";
+    case "custom":
+      return normalize(settings.customOutputFolder);
+    default:
+      return dirname(sourcePath);
+  }
+}
+
+/** Never overwrite: append " (1)", " (2)", … on collision (§7.4). */
+function uniqueOutputPath(writer: VaultWriter, folder: string, base: string, ext: string): string {
+  const dir = folder ? `${folder.replace(/\/$/, "")}/` : "";
+  let candidate = normalize(`${dir}${base}.${ext}`);
+  let n = 1;
+  while (writer.exists(candidate)) {
+    candidate = normalize(`${dir}${base} (${n}).${ext}`);
+    n++;
+  }
+  return candidate;
+}

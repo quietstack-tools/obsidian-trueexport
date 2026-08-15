@@ -1,2 +1,47 @@
-/* TrueExport styles */
-.trueexport-modal { padding: 1rem; }
+/* TrueExport plugin UI styles (the exported HTML carries its own inlined CSS). */
+
+.trueexport-modal h3 {
+  margin-top: 0;
+}
+
+.trueexport-format-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.trueexport-format-option {
+  cursor: pointer;
+}
+
+.trueexport-advanced {
+  margin: 0.75rem 0;
+}
+
+.trueexport-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.trueexport-warnings-row {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  background: var(--background-modifier-error-hover, rgba(233, 49, 71, 0.1));
+  color: var(--text-warning, #c0761a);
+  cursor: pointer;
+}
+
+.trueexport-warnings-count {
+  color: var(--text-warning, #c0761a);
+  font-weight: 600;
+}
+
+.trueexport-warnings-list {
+  margin: 0.5rem 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.trueexport-warnings-list li {
+  margin-bottom: 0.4rem;
+}
