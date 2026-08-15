@@ -4,8 +4,9 @@
 // the canvas-based SVG rasteriser for the DOCX renderer. This is the only file
 // besides src/licence/ that may import from "obsidian" directly (R1/R2).
 
-import { App, Component, MarkdownRenderer, TFile, normalizePath } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile, normalizePath, requestUrl } from "obsidian";
 import type { VaultAdapter } from "./core/adapter";
+import type { RemoteImageFetcher } from "./core/resolver/context";
 
 const MIME_TYPES: Record<string, string> = {
   png: "image/png",
@@ -64,6 +65,30 @@ export class ObsidianVaultAdapter implements VaultAdapter {
       .filter((p) => prefix === "" || prefix === "/" || p === prefix || p.startsWith(`${prefix}/`))
       .sort();
   }
+}
+
+/**
+ * The opt-in remote-image fetch capability (§7.6) — the SECOND documented
+ * network call in the codebase, wired only when the user enables remote images.
+ * Uses Obsidian's requestUrl (CORS-free, works on mobile). Returns null on any
+ * failure (network error, non-200, or a non-image content type) so the resolver
+ * degrades to a placeholder + warning rather than aborting.
+ */
+export function createRemoteImageFetcher(): RemoteImageFetcher {
+  return async (url) => {
+    try {
+      const res = await requestUrl({ url, method: "GET", throw: false });
+      if (res.status < 200 || res.status >= 300) return null;
+      const contentType = (res.headers?.["content-type"] ?? res.headers?.["Content-Type"] ?? "")
+        .split(";")[0]
+        .trim()
+        .toLowerCase();
+      if (!contentType.startsWith("image/")) return null;
+      return { data: res.arrayBuffer, mimeType: contentType };
+    } catch {
+      return null;
+    }
+  };
 }
 
 /**

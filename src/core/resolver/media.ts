@@ -4,9 +4,10 @@
 // produces a concrete MediaResource. Missing files degrade to a placeholder +
 // warning; remote images are blocked by default (§7.6).
 //
-// JUDGMENT CALL: actually fetching a remote image (when the setting is on) is a
-// network operation deferred to Stage 9. Stage 3 blocks remote images and warns
-// regardless of the setting, so nothing here performs I/O beyond the vault.
+// Remote images (§7.6): OFF by default. When the user enables them AND a fetch
+// capability is injected (ctx.fetchRemoteImage), the bytes are fetched; any
+// failure degrades to a placeholder + warning and never aborts. The fetch
+// itself lives outside core, so this file makes no direct network call (R1).
 
 import type { MediaResource } from "../model/nodes";
 import type { ResolveContext } from "./context";
@@ -37,15 +38,7 @@ export async function loadMedia(
   line?: number,
 ): Promise<MediaResource> {
   if (/^https?:\/\//i.test(path)) {
-    ctx.warnings.add({
-      construct: "image",
-      message: ctx.options.allowRemoteImages
-        ? `Remote image "${path}" was not embedded (remote fetching is unavailable).`
-        : `Remote image "${path}" was skipped. Enable "Allow remote images" in settings to embed it.`,
-      line,
-      sourcePath: fromPath,
-    });
-    return { kind: "remote-blocked", originalPath: path };
+    return loadRemote(path, ctx, fromPath, line);
   }
 
   for (const candidate of candidatePaths(path, fromPath, ctx)) {
@@ -63,6 +56,45 @@ export async function loadMedia(
   ctx.warnings.add({
     construct: "image",
     message: `Image not found: ${basename(path)}. Check the file exists in your vault.`,
+    line,
+    sourcePath: fromPath,
+  });
+  return { kind: "missing", originalPath: path };
+}
+
+/** Remote image handling (§7.6): default-off; fetch only when enabled + wired. */
+async function loadRemote(
+  path: string,
+  ctx: ResolveContext,
+  fromPath: string,
+  line?: number,
+): Promise<MediaResource> {
+  // Disabled by default: never fetch; warn with the actionable remedy.
+  if (!ctx.options.allowRemoteImages) {
+    ctx.warnings.add({
+      construct: "image",
+      message: `Remote image "${path}" was skipped. Enable "Allow remote images" in settings to embed it.`,
+      line,
+      sourcePath: fromPath,
+    });
+    return { kind: "remote-blocked", originalPath: path };
+  }
+
+  // Enabled but no fetch capability in this context (e.g. a pre-scan, which
+  // must do no network I/O): treat as blocked, silently.
+  if (!ctx.fetchRemoteImage) {
+    return { kind: "remote-blocked", originalPath: path };
+  }
+
+  const fetched = await ctx.fetchRemoteImage(path);
+  if (fetched) {
+    return { kind: "binary", data: fetched.data, mimeType: fetched.mimeType, originalPath: path };
+  }
+
+  // Network error / non-200 / non-image → placeholder + warning, never abort.
+  ctx.warnings.add({
+    construct: "image",
+    message: `Remote image "${path}" could not be fetched and was shown as a placeholder.`,
     line,
     sourcePath: fromPath,
   });

@@ -6,7 +6,12 @@
 // nothing to leak (§10).
 
 import { Notice, Plugin, Platform, TFile, TFolder, type Menu } from "obsidian";
-import { ObsidianVaultAdapter, createSvgRasterizer, createMermaidRenderer } from "./src/obsidian-adapter";
+import {
+  ObsidianVaultAdapter,
+  createSvgRasterizer,
+  createMermaidRenderer,
+  createRemoteImageFetcher,
+} from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
@@ -45,6 +50,9 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
     this.deps = {
       rasterizeSvg: createSvgRasterizer(),
       mermaidToSvg: createMermaidRenderer(this.app),
+      // The remote-image fetch capability. It only ever runs when the user has
+      // enabled the default-off "Allow remote images" setting (§7.6).
+      fetchRemoteImage: createRemoteImageFetcher(),
       // PDF is desktop-only: only wire the Electron seam there (§7.5).
       ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
     };
