@@ -53,3 +53,9 @@ A task is complete when:
 2. New code has tests
 3. The relevant fixture exports correctly
 4. No new ESLint warnings
+
+## Workflow
+
+- Always run `git checkout main && git pull` before creating a new stage branch
+  with `git checkout -b`. Never branch off another feature branch — every stage
+  branch must start from an up-to-date `main`.
