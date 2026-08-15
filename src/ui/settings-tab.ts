@@ -9,6 +9,11 @@ import type { TrueExportSettings } from "./settings";
 import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
 
+// Polar's documented static customer-portal URL (customer authenticates by
+// email on the page — no pre-session needed). Verify the org slug against the
+// Polar organisation settings before release; "quietstack" matches the domain.
+const POLAR_PORTAL_URL = "https://polar.sh/quietstack/portal";
+
 export interface SettingsHost {
   settings: TrueExportSettings;
   saveSettings(): Promise<void>;
@@ -272,13 +277,25 @@ export class TrueExportSettingTab extends PluginSettingTab {
             this.display();
           });
       });
-    new Setting(containerEl)
-      .setName("Get TrueExport Pro")
-      .addButton((b) =>
-        b.setButtonText("Learn more").onClick(() => {
-          window.open(PRO_URL, "_blank");
-        }),
-      );
+    if (licence.isActivated) {
+      // Already Pro: offer licence/billing management, not an upsell.
+      new Setting(containerEl)
+        .setName("Manage licence")
+        .setDesc("Manage your licence and billing in the Polar customer portal.")
+        .addButton((b) =>
+          b.setButtonText("Open portal").onClick(() => {
+            window.open(POLAR_PORTAL_URL, "_blank");
+          }),
+        );
+    } else {
+      new Setting(containerEl)
+        .setName("Get TrueExport Pro")
+        .addButton((b) =>
+          b.setButtonText("Learn more").onClick(() => {
+            window.open(PRO_URL, "_blank");
+          }),
+        );
+    }
 
     // About
     new Setting(containerEl).setName("About").setHeading();
