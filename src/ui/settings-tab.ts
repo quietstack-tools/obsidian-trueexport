@@ -144,8 +144,13 @@ export class TrueExportSettingTab extends PluginSettingTab {
       .addText((t) =>
         t.setValue(String(s.pdfMargins)).onChange((v) => {
           const n = Number(v);
-          if (!Number.isNaN(n) && n >= 0) s.pdfMargins = n;
-          save();
+          if (!Number.isNaN(n) && n >= 0) {
+            s.pdfMargins = n;
+            save();
+          } else {
+            // Reject invalid input by snapping the field back to the stored value.
+            t.setValue(String(s.pdfMargins));
+          }
         }),
       );
 

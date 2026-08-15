@@ -40,4 +40,20 @@ describe("TrueExportSettingTab", () => {
     expect(host.settings.defaultFormat).toBe("html");
     expect(host.saveSettings).toHaveBeenCalled();
   });
+
+  it("rejects an invalid PDF margin and snaps the field back to the stored value", () => {
+    const { tab, host } = makeTab();
+    tab.display();
+    const items = Array.from(tab.containerEl.querySelectorAll(".setting-item"));
+    const marginsItem = items.find(
+      (el) => el.querySelector(".setting-item-name")?.textContent === "Margins (inches)",
+    )!;
+    const input = marginsItem.querySelector("input") as HTMLInputElement;
+
+    input.value = "-1";
+    input.dispatchEvent(new Event("input"));
+
+    expect(host.settings.pdfMargins).toBe(1); // never stored
+    expect(input.value).toBe("1"); // field snapped back, no visible divergence
+  });
 });
