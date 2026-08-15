@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as JSZip from "jszip";
-import { exportNote, scanNote, type VaultWriter } from "../../src/export";
+import { exportNote, exportFolder, scanNote, type VaultWriter } from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
 import { MemoryVaultAdapter } from "../helpers/memory-adapter";
 
@@ -150,5 +150,84 @@ describe("scanNote", () => {
   it("returns warnings without writing anything", async () => {
     const warnings = await scanNote(adapter(), settings(), "folder/Note.md");
     expect(warnings.some((w) => w.construct === "dataview")).toBe(true);
+  });
+});
+
+describe("exportFolder (batch)", () => {
+  const folderAdapter = () =>
+    new MemoryVaultAdapter({
+      notes: { "proj/A.md": "# A", "proj/B.md": "# B", "proj/sub/C.md": "# C", "other/D.md": "# D" },
+    });
+
+  it("exports every markdown note under the folder", async () => {
+    const writer = new FakeWriter();
+    const result = await exportFolder({
+      adapter: folderAdapter(),
+      writer,
+      settings: settings(),
+      folderPath: "proj",
+      format: "html",
+      template: "default",
+    });
+    expect(result.total).toBe(3);
+    expect(result.outputs.sort()).toEqual(["proj/A.html", "proj/B.html", "proj/sub/C.html"]);
+    expect(result.cancelled).toBe(false);
+  });
+
+  it("captures a failing note without aborting the rest", async () => {
+    class ThrowOnB extends FakeWriter {
+      async writeText(path: string, data: string): Promise<void> {
+        if (path.includes("B")) throw new Error("disk full");
+        return super.writeText(path, data);
+      }
+    }
+    const writer = new ThrowOnB();
+    const result = await exportFolder({
+      adapter: folderAdapter(),
+      writer,
+      settings: settings(),
+      folderPath: "proj",
+      format: "html",
+      template: "default",
+    });
+    expect(result.outputs).toHaveLength(2);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].path).toBe("proj/B.md");
+  });
+
+  it("stops immediately when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const writer = new FakeWriter();
+    const result = await exportFolder({
+      adapter: folderAdapter(),
+      writer,
+      settings: settings(),
+      folderPath: "proj",
+      format: "html",
+      template: "default",
+      signal: controller.signal,
+    });
+    expect(result.cancelled).toBe(true);
+    expect(result.outputs).toEqual([]);
+    expect(writer.files.size).toBe(0);
+  });
+
+  it("reports progress after each note", async () => {
+    const progress: Array<[number, number]> = [];
+    await exportFolder({
+      adapter: folderAdapter(),
+      writer: new FakeWriter(),
+      settings: settings(),
+      folderPath: "proj",
+      format: "html",
+      template: "default",
+      onProgress: (done, total) => progress.push([done, total]),
+    });
+    expect(progress).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
   });
 });

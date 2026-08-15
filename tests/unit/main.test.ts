@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { App, Platform } from "obsidian";
 import TrueExportPlugin from "../../main";
 
@@ -67,5 +67,18 @@ describe("TrueExportPlugin.onload", () => {
     const plugin = makePlugin();
     await plugin.onload();
     expect(() => plugin.onunload()).not.toThrow();
+  });
+
+  it("never performs a network call on load (licence is validated only on Activate)", async () => {
+    const realFetch = globalThis.fetch;
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+    try {
+      const plugin = makePlugin();
+      await plugin.onload();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

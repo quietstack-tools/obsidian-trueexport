@@ -29,6 +29,8 @@ export interface TrueExportSettings {
   wordPageSize: PageSize;
   frontmatterMode: FrontmatterMode;
   embedFonts: boolean;
+  /** Pro: path to a reference .docx whose styles are applied (integration pending). */
+  referenceDocxPath: string;
   // PDF
   pdfPageSize: PageSize;
   pdfOrientation: Orientation;
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: TrueExportSettings = {
   wordPageSize: "A4",
   frontmatterMode: "strip",
   embedFonts: false,
+  referenceDocxPath: "",
   pdfPageSize: "A4",
   pdfOrientation: "portrait",
   pdfPageNumbers: false,

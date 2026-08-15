@@ -154,6 +154,65 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   return { outputPath, warnings: warnings.list() };
 }
 
+// ---- Batch folder export (Pro; §6.1, §7.3) ----
+
+export interface BatchExportParams {
+  adapter: VaultAdapter;
+  writer: VaultWriter;
+  settings: TrueExportSettings;
+  folderPath: string;
+  format: ExportFormat;
+  template: TemplateId;
+  deps?: ExportDeps;
+  /** Abort to cancel mid-run (§7.3). */
+  signal?: AbortSignal;
+  /** Progress callback, fired after each note. */
+  onProgress?: (done: number, total: number) => void;
+}
+
+export interface BatchResult {
+  outputs: string[];
+  warnings: ExportWarning[];
+  failures: { path: string; error: string }[];
+  total: number;
+  cancelled: boolean;
+}
+
+/** Yield to the UI thread between notes so a big batch never blocks it (§7.3). */
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export async function exportFolder(params: BatchExportParams): Promise<BatchResult> {
+  const { adapter, writer, settings, folderPath, format, template, deps, signal, onProgress } = params;
+  const notePaths = await adapter.listNotesInFolder(folderPath);
+
+  const outputs: string[] = [];
+  const warnings: ExportWarning[] = [];
+  const failures: { path: string; error: string }[] = [];
+  let cancelled = false;
+
+  for (let i = 0; i < notePaths.length; i++) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+    const sourcePath = notePaths[i];
+    try {
+      const result = await exportNote({ adapter, writer, settings, sourcePath, format, template, deps });
+      outputs.push(result.outputPath);
+      warnings.push(...result.warnings);
+    } catch (error) {
+      // One bad note must not abort the whole batch.
+      failures.push({ path: sourcePath, error: error instanceof Error ? error.message : String(error) });
+    }
+    onProgress?.(i + 1, notePaths.length);
+    await yieldToUi();
+  }
+
+  return { outputs, warnings, failures, total: notePaths.length, cancelled };
+}
+
 function outputFolder(settings: TrueExportSettings, sourcePath: string): string {
   switch (settings.outputLocation) {
     case "vault-root":

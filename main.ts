@@ -11,24 +11,36 @@ import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
 import type { ExportWarning } from "./src/core/warnings";
-import { exportNote, scanNote, basename, type ExportDeps, type VaultWriter } from "./src/export";
+import {
+  exportNote,
+  exportFolder,
+  scanNote,
+  basename,
+  type BatchResult,
+  type ExportDeps,
+  type VaultWriter,
+} from "./src/export";
 import {
   DEFAULT_SETTINGS,
   type TrueExportSettings,
 } from "./src/ui/settings";
+import { LicenceManager } from "./src/licence";
 import { ExportModal, type ExportModalHost, type ExportSource } from "./src/ui/export-modal";
+import { BatchModal, type BatchModalHost } from "./src/ui/batch-modal";
 import { TrueExportSettingTab } from "./src/ui/settings-tab";
 import { WarningsModal } from "./src/ui/warnings-view";
 
 const PRO_URL = "https://quietstack.tools/trueexport";
 
-export default class TrueExportPlugin extends Plugin implements ExportModalHost {
+export default class TrueExportPlugin extends Plugin implements ExportModalHost, BatchModalHost {
   settings: TrueExportSettings = { ...DEFAULT_SETTINGS };
+  licence!: LicenceManager;
   private adapter!: VaultAdapter;
   private deps!: ExportDeps;
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    this.licence = new LicenceManager(this);
     this.adapter = new ObsidianVaultAdapter(this.app);
     this.deps = {
       rasterizeSvg: createSvgRasterizer(),
@@ -66,7 +78,9 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost 
       id: "export-folder",
       name: "Export folder… (Pro)",
       checkCallback: (checking) => {
-        if (!checking) this.requireProNotice("Folder export");
+        const folder = this.activeFolder();
+        if (!folder) return false;
+        if (!checking) this.startFolderExport(folder.path, folder.name);
         return true;
       },
     });
@@ -85,7 +99,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost 
             item
               .setTitle("Export folder with TrueExport…")
               .setIcon("file-output")
-              .onClick(() => this.requireProNotice("Folder export")),
+              .onClick(() => this.startFolderExport(file.path, file.name || "vault")),
           );
         }
       }),
@@ -142,7 +156,40 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost 
     }
   }
 
+  // ---- BatchModalHost ----
+
+  async runFolderExport(
+    folderPath: string,
+    onProgress: (done: number, total: number) => void,
+    signal: AbortSignal,
+  ): Promise<BatchResult> {
+    return exportFolder({
+      adapter: this.adapter,
+      writer: this.writer(),
+      settings: this.settings,
+      folderPath,
+      format: this.settings.defaultFormat,
+      template: this.settings.defaultTemplate,
+      deps: this.deps,
+      onProgress,
+      signal,
+    });
+  }
+
   // ---- helpers ----
+
+  private activeFolder(): { path: string; name: string } | null {
+    const parent = this.app.workspace.getActiveFile()?.parent;
+    return parent ? { path: parent.path, name: parent.name || "vault" } : null;
+  }
+
+  private startFolderExport(folderPath: string, folderName: string): void {
+    if (!this.isPro) {
+      this.requireProNotice("Folder export");
+      return;
+    }
+    new BatchModal(this.app, this, folderPath, folderName).open();
+  }
 
   private directExport(checking: boolean, format: ExportFormat): boolean {
     const file = this.activeMarkdownFile();
