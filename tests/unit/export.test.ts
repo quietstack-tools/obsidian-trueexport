@@ -151,6 +151,48 @@ describe("scanNote", () => {
     const warnings = await scanNote(adapter(), settings(), "folder/Note.md");
     expect(warnings.some((w) => w.construct === "dataview")).toBe(true);
   });
+
+  it("never fetches remote images (no network during a pre-scan)", async () => {
+    const fetchRemoteImage = vi.fn(async () => ({ data: new ArrayBuffer(1), mimeType: "image/png" }));
+    const remoteAdapter = new MemoryVaultAdapter({ notes: { "R.md": "![x](https://e.com/a.png)" } });
+    // scanNote takes no deps → the fetcher is never reachable.
+    await scanNote(remoteAdapter, { ...settings(), allowRemoteImages: true }, "R.md");
+    expect(fetchRemoteImage).not.toHaveBeenCalled();
+  });
+});
+
+describe("remote images (§7.6) at the export level", () => {
+  const remoteAdapter = () => new MemoryVaultAdapter({ notes: { "R.md": "![x](https://e.com/a.png)" } });
+
+  it("does NOT call the fetcher when the setting is off (default)", async () => {
+    const fetchRemoteImage = vi.fn(async () => ({ data: new ArrayBuffer(1), mimeType: "image/png" }));
+    await exportNote({
+      adapter: remoteAdapter(),
+      writer: new FakeWriter(),
+      settings: settings(), // allowRemoteImages defaults to false
+      sourcePath: "R.md",
+      format: "html",
+      template: "default",
+      deps: { fetchRemoteImage },
+    });
+    expect(fetchRemoteImage).not.toHaveBeenCalled();
+  });
+
+  it("calls the fetcher and embeds the image when the setting is on", async () => {
+    const fetchRemoteImage = vi.fn(async () => ({ data: new TextEncoder().encode("PNG").buffer, mimeType: "image/png" }));
+    const writer = new FakeWriter();
+    const result = await exportNote({
+      adapter: remoteAdapter(),
+      writer,
+      settings: { ...settings(), allowRemoteImages: true },
+      sourcePath: "R.md",
+      format: "html",
+      template: "default",
+      deps: { fetchRemoteImage },
+    });
+    expect(fetchRemoteImage).toHaveBeenCalledWith("https://e.com/a.png");
+    expect(String(writer.files.get(result.outputPath))).toContain("data:image/png;base64,");
+  });
 });
 
 describe("exportFolder (batch)", () => {

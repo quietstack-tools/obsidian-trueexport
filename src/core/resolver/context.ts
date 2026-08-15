@@ -8,6 +8,14 @@ import type { VaultAdapter } from "../adapter";
 import type { ExportOptions } from "../options";
 import type { WarningCollector } from "../warnings";
 
+/**
+ * Fetch a remote image's bytes (§7.6). Injected — the actual network call lives
+ * outside core (obsidian-adapter), so src/core makes no direct network call.
+ * Resolves to null on any failure (network error, non-200, non-image); it must
+ * never throw.
+ */
+export type RemoteImageFetcher = (url: string) => Promise<{ data: ArrayBuffer; mimeType: string } | null>;
+
 export interface ResolveContext {
   adapter: VaultAdapter;
   options: ExportOptions;
@@ -18,4 +26,10 @@ export interface ResolveContext {
    * to plain text (§4.2.3–4).
    */
   includedNotePaths: ReadonlySet<string>;
+  /**
+   * Remote-image fetch capability. Present only when the network path is
+   * available AND the user has enabled remote images; absent otherwise (e.g. a
+   * pre-scan, which must do no network I/O).
+   */
+  fetchRemoteImage?: RemoteImageFetcher;
 }

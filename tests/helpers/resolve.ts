@@ -4,6 +4,7 @@
 
 import { parseMarkdown } from "../../src/core/parser";
 import { resolveDocument } from "../../src/core/resolver";
+import type { RemoteImageFetcher } from "../../src/core/resolver/context";
 import { defaultExportOptions, type ExportOptions } from "../../src/core/options";
 import { WarningCollector, type ExportWarning } from "../../src/core/warnings";
 import type { IdmDocument } from "../../src/core/model/document";
@@ -16,6 +17,8 @@ export interface ResolveOptions {
   /** Note paths considered part of this export. Defaults to [sourcePath]. */
   included?: string[];
   options?: Partial<ExportOptions>;
+  /** Inject the remote-image fetch capability (§7.6). */
+  fetchRemoteImage?: RemoteImageFetcher;
 }
 
 export interface ResolvedFixture {
@@ -35,6 +38,7 @@ export async function resolve(source: string, opts: ResolveOptions = {}): Promis
     options,
     warnings,
     includedNotePaths,
+    fetchRemoteImage: opts.fetchRemoteImage,
   });
   return { doc, warnings: warnings.list() };
 }

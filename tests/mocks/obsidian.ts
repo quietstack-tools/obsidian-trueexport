@@ -493,6 +493,26 @@ export function setIcon(el: HTMLElement, icon: string): void {
   el.setAttribute("data-icon", icon);
 }
 
+// requestUrl with a settable handler so createRemoteImageFetcher is testable.
+interface RequestUrlResponse {
+  status: number;
+  headers: Record<string, string>;
+  arrayBuffer: ArrayBuffer;
+  text: string;
+}
+let requestUrlHandler: (opts: any) => Promise<RequestUrlResponse> = async () => ({
+  status: 200,
+  headers: {},
+  arrayBuffer: new ArrayBuffer(0),
+  text: "",
+});
+export function setRequestUrlHandler(h: (opts: any) => Promise<RequestUrlResponse>): void {
+  requestUrlHandler = h;
+}
+export function requestUrl(opts: any): Promise<RequestUrlResponse> {
+  return requestUrlHandler(opts);
+}
+
 export function normalizePath(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\.\//, "");
 }

@@ -12,6 +12,7 @@ import type { BlockNode, InlineNode } from "./core/model/nodes";
 import { parseMarkdown } from "./core/parser";
 import { resolveDocument } from "./core/resolver";
 import { parseLatex } from "./math/parse";
+import type { RemoteImageFetcher } from "./core/resolver/context";
 import { renderDocx, type DocxDeps } from "./docx";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
@@ -36,6 +37,8 @@ export interface ExportDeps extends DocxDeps {
   htmlToPdf?: HtmlToPdf;
   /** Render a Mermaid diagram to SVG via Obsidian's Mermaid instance (§4.11). */
   mermaidToSvg?: (source: string) => Promise<string>;
+  /** Opt-in, default-off remote-image fetch (§7.6). Only used when enabled. */
+  fetchRemoteImage?: RemoteImageFetcher;
 }
 
 export interface ExportResult {
@@ -77,6 +80,7 @@ async function buildDocument(
   sourcePath: string,
   options: ExportOptions,
   warnings: WarningCollector,
+  deps?: ExportDeps,
 ): Promise<IdmDocument> {
   const content = await adapter.readNote(sourcePath);
   if (content === null) {
@@ -88,6 +92,9 @@ async function buildDocument(
     options,
     warnings,
     includedNotePaths: new Set([sourcePath]),
+    // Only fetch remote images during a real export (deps present) and only
+    // when the user enabled them; the pre-scan passes no deps → no network.
+    fetchRemoteImage: options.allowRemoteImages ? deps?.fetchRemoteImage : undefined,
   });
   // Warn for any equation that can't be converted (it renders as text; §4.10).
   collectMathWarnings(doc.blocks, warnings, sourcePath);
@@ -207,7 +214,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const now = params.now ?? new Date();
   const options = settingsToExportOptions(settings, format, template);
   const warnings = new WarningCollector();
-  const doc = await buildDocument(adapter, sourcePath, options, warnings);
+  const doc = await buildDocument(adapter, sourcePath, options, warnings, deps);
   doc.blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
   const pro = settings.licenceActivated;
 

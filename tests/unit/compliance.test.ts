@@ -12,15 +12,22 @@ function walk(dir: string): string[] {
   return out;
 }
 
-const NETWORK_CALL = /(?<![\w.])fetch\s*\(|new\s+XMLHttpRequest|(?<![\w.])requestUrl\s*\(/;
+// Match real call sites — `fetch(` / `requestUrl(` with no space — so prose in
+// comments (e.g. "the remote-image fetch (§7.6)") doesn't trip the guard.
+const NETWORK_CALL = /(?<![\w.])fetch\(|new\s+XMLHttpRequest|(?<![\w.])requestUrl\(/;
+
+// The ONLY two documented network calls (TECH_SPEC R6/§7.6):
+//   1. licence validation (fetch)          — src/licence/polar.ts
+//   2. opt-in remote-image fetch (requestUrl) — src/obsidian-adapter.ts
+const ALLOWED_NETWORK_SITES = ["src/licence/polar.ts", "src/obsidian-adapter.ts"];
 
 describe("network-call compliance (§7.6, R6)", () => {
-  it("only src/licence/polar.ts performs a network call", () => {
+  it("only the two documented sites perform a network call", () => {
     const root = join(process.cwd(), "src");
     const offenders = walk(root)
       .filter((file) => NETWORK_CALL.test(readFileSync(file, "utf8")))
-      .map((file) => relative(process.cwd(), file));
-    // The licence validation is the only network call in the codebase.
-    expect(offenders).toEqual(["src/licence/polar.ts"]);
+      .map((file) => relative(process.cwd(), file))
+      .sort();
+    expect(offenders).toEqual(ALLOWED_NETWORK_SITES);
   });
 });

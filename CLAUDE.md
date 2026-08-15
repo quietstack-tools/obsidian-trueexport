@@ -6,8 +6,12 @@ to Obsidian-specific Markdown syntax. Full requirements are in TECH_SPEC.md.
 
 ## Hard constraints — never violate
 
-- NEVER make network calls except the single documented licence validation
-  in src/licence/. No telemetry. No analytics. No update checks. No CDN fetches.
+- Make no network calls except the two documented ones (TECH_SPEC R6/§7.6):
+  (1) the licence validation in src/licence/, and (2) an opt-in remote-image
+  fetch that is OFF by default and runs only when the user enables "Allow
+  remote images". Nothing else: no telemetry, no analytics, no update checks,
+  no other CDN fetches. The remote fetch must never abort an export — a network
+  error, non-200, or non-image response degrades to a placeholder + warning.
 - NEVER read or write files outside the vault, except the user's chosen export
   destination.
 - NEVER modify the user's source notes. Export is read-only against the vault.
