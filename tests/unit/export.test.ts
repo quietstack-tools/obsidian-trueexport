@@ -415,6 +415,30 @@ describe("reference DOCX (Pro; §5.1)", () => {
     expect(result.warnings.some((w) => w.construct === "reference")).toBe(true);
   });
 
+  it("caches a known-bad reference too (no re-read/re-parse), still warning each time", async () => {
+    const garbage = new TextEncoder().encode("this is not a docx").buffer;
+    const adapter = refAdapter({ "templates/house.docx": garbage });
+    const readSpy = vi.spyOn(adapter, "readBinary");
+    const s = settings({ licenceActivated: true, referenceDocxPath: "templates/house.docx" });
+    const run = () =>
+      exportNote({
+        adapter,
+        writer: new FakeWriter(),
+        settings: s,
+        sourcePath: "folder/Note.md",
+        format: "docx",
+        template: "default",
+      });
+    const r1 = await run();
+    const r2 = await run();
+    // Read once across both exports (second is a negative-cache hit)…
+    const refReads = readSpy.mock.calls.filter((c) => c[0] === "templates/house.docx").length;
+    expect(refReads).toBe(1);
+    // …but the warning is still surfaced on every export.
+    expect(r1.warnings.some((w) => w.construct === "reference")).toBe(true);
+    expect(r2.warnings.some((w) => w.construct === "reference")).toBe(true);
+  });
+
   it("caches the parsed reference by mtime (no re-read on the second export)", async () => {
     const adapter = refAdapter({ "templates/house.docx": REFERENCE_DOCX });
     const readSpy = vi.spyOn(adapter, "readBinary");

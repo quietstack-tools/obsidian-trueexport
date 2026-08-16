@@ -256,23 +256,34 @@ export async function scanNote(
 }
 
 /**
- * Cache of successfully-parsed reference styles, keyed by vault path, guarded by
- * the file's modified time so a reference isn't re-read and re-parsed on every
- * export. Persists for the plugin session; bounded by the number of distinct
- * reference paths (tiny). Exposed for test isolation.
+ * Cache of parsed reference outcomes, keyed by vault path and guarded by the
+ * file's modified time so a reference isn't re-read/re-parsed on every export.
+ * Caches BOTH successes and known-bad results (null) — so a persistently broken
+ * reference (corrupt/oversized/pathological) isn't repeatedly re-read and
+ * re-parsed either. Persists for the plugin session; bounded by the number of
+ * distinct reference paths (tiny). Exposed for test isolation.
  */
-const referenceCache = new Map<string, { mtime: number; styles: ReferenceStyles }>();
+const referenceCache = new Map<string, { mtime: number; result: ReferenceStyles | null }>();
 
 /** Clear the reference-style cache (test hygiene). */
 export function clearReferenceStyleCache(): void {
   referenceCache.clear();
 }
 
+function warnUnreadableReference(warnings: WarningCollector, path: string, sourcePath: string): void {
+  warnings.add({
+    construct: "reference",
+    message: `Could not read styles from the reference document "${path}" — using default styles instead.`,
+    sourcePath,
+  });
+}
+
 /**
  * Load and parse a Pro user's reference .docx (§5.1). Pro-gated and best-effort:
  * a missing, unreadable, or unparseable reference never aborts the export — it
  * degrades to built-in styles with a specific, actionable warning (§7.4).
- * Results are cached by (path, mtime) to avoid re-parsing on every export.
+ * Outcomes are cached by (path, mtime) to avoid re-reading/re-parsing on every
+ * export, whether the reference parsed successfully or is known-bad.
  */
 async function loadReferenceStyles(
   adapter: VaultAdapter,
@@ -287,11 +298,19 @@ async function loadReferenceStyles(
   const mtime = adapter.getModifiedTime ? await adapter.getModifiedTime(path) : null;
   if (mtime !== null) {
     const cached = referenceCache.get(path);
-    if (cached && cached.mtime === mtime) return cached.styles;
+    if (cached && cached.mtime === mtime) {
+      if (cached.result) return cached.result;
+      // Known-bad reference: still warn (the file is still broken), but skip the
+      // re-read + re-parse.
+      warnUnreadableReference(warnings, path, sourcePath);
+      return undefined;
+    }
   }
 
   const bytes = await adapter.readBinary(path);
   if (!bytes) {
+    // A missing file has no mtime to key on, so this isn't cached — but the
+    // check (getModifiedTime + a null read) is cheap.
     warnings.add({
       construct: "reference",
       message: `Reference document "${path}" wasn't found — using default styles instead. Check the path in TrueExport settings.`,
@@ -301,16 +320,11 @@ async function loadReferenceStyles(
   }
 
   const styles = await parseReferenceStyles(bytes);
+  if (mtime !== null) referenceCache.set(path, { mtime, result: styles ?? null });
   if (!styles) {
-    warnings.add({
-      construct: "reference",
-      message: `Could not read styles from the reference document "${path}" — using default styles instead.`,
-      sourcePath,
-    });
+    warnUnreadableReference(warnings, path, sourcePath);
     return undefined;
   }
-
-  if (mtime !== null) referenceCache.set(path, { mtime, styles });
   return styles;
 }
 

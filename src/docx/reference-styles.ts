@@ -209,28 +209,44 @@ function indexStyleBlocks(xml: string): StyleIndex {
  */
 function styleFrom(index: StyleIndex, styleId: string, name: string): RefStyle | undefined {
   const inner = index.byId.get(styleId.toLowerCase()) ?? index.byName.get(name.toLowerCase());
-  if (inner === undefined) return undefined;
-  const run = runProps(firstBlock(inner, "w:rPr"));
-  const paragraph = paraProps(firstBlock(inner, "w:pPr"));
-  return toStyle(run, paragraph);
+  return inner === undefined ? undefined : styleProps(inner);
 }
 
 /** The document defaults (<w:docDefaults>) → the Normal style's base. */
 function defaultsStyle(xml: string): RefStyle | undefined {
   const block = firstBlock(xml, "w:docDefaults");
-  if (!block) return undefined;
-  const run = runProps(firstBlock(block, "w:rPr"));
-  const paragraph = paraProps(firstBlock(block, "w:pPr"));
-  return toStyle(run, paragraph);
+  return block ? styleProps(block) : undefined;
 }
 
 /**
- * Inner text of the first complete <tag …>…</tag> in `xml`, else undefined.
- * Linear (indexOf-based) and boundary-aware, so <w:rPr> is not matched by
- * <w:rPrDefault>. Used for unique/near-unique containers (docDefaults, and
- * rPr/pPr within a single already-bounded style block).
+ * Extract run + paragraph properties from a style block (a <w:style> body or
+ * <w:docDefaults>). Paragraph props come from <w:pPr>; run props MUST come from
+ * the <w:rPr> that is a direct child of the style — NOT the paragraph-mark
+ * <w:rPr> that OOXML nests inside <w:pPr> (which Word/LibreOffice emit). So we
+ * locate the pPr span and exclude it before searching for the run <w:rPr>.
  */
-function firstBlock(xml: string | undefined, tag: string): string | undefined {
+function styleProps(inner: string): RefStyle | undefined {
+  const pPr = locateBlock(inner, "w:pPr");
+  const paragraph = paraProps(pPr?.inner);
+  const runScope = pPr ? inner.slice(0, pPr.start) + inner.slice(pPr.end) : inner;
+  const run = runProps(firstBlock(runScope, "w:rPr"));
+  return toStyle(run, paragraph);
+}
+
+interface LocatedBlock {
+  inner: string;
+  /** Index in the source where the opening tag begins. */
+  start: number;
+  /** Index in the source just past the closing tag. */
+  end: number;
+}
+
+/**
+ * Locate the first complete <tag …>…</tag> in `xml` — its inner text and span.
+ * Linear (indexOf-based) and boundary-aware, so <w:pPr> is not matched by a
+ * longer name and <w:rPr> is not matched by <w:rPrDefault>.
+ */
+function locateBlock(xml: string | undefined, tag: string): LocatedBlock | undefined {
   if (!xml) return undefined;
   const open = `<${tag}`;
   const close = `</${tag}>`;
@@ -251,8 +267,13 @@ function firstBlock(xml: string | undefined, tag: string): string | undefined {
     }
     const end = xml.indexOf(close, gt + 1);
     if (end === -1) return undefined;
-    return xml.slice(gt + 1, end);
+    return { inner: xml.slice(gt + 1, end), start, end: end + close.length };
   }
+}
+
+/** Inner text of the first complete <tag …>…</tag>, or undefined. */
+function firstBlock(xml: string | undefined, tag: string): string | undefined {
+  return locateBlock(xml, tag)?.inner;
 }
 
 /** A character that ends an element name (so we don't match a longer tag). */

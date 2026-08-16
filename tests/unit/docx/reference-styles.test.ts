@@ -117,6 +117,29 @@ describe("extractStylesFromXml", () => {
     expect(s.heading1?.run?.color).toBeUndefined();
     expect(s.heading1?.run?.size).toBe(40);
   });
+
+  // Finding 1: a paragraph-mark <w:rPr> nested inside <w:pPr> must NOT be read
+  // as the style's run properties. Uses a hand-authored fixture, because the
+  // docx write-library never emits that shape (which is why the bug hid).
+  it("reads the style's own <w:rPr>, not the paragraph-mark rPr inside <w:pPr>", () => {
+    const xml = readFileSync("tests/fixtures/reference-marked-styles.xml", "utf8");
+    const s = extractStylesFromXml(xml);
+
+    // Normal (docDefaults): the real run props are in <w:rPrDefault>, NOT the
+    // mark rPr (BBBBBB / 8) inside <w:pPrDefault>'s <w:pPr>.
+    expect(s.normal?.run).toEqual({ font: "Georgia", color: "222222", size: 24 });
+    expect(s.normal?.run?.color).not.toBe("BBBBBB");
+    expect(s.normal?.run?.size).not.toBe(8);
+    expect(s.normal?.paragraph).toEqual({ after: 200, line: 276, lineRule: "auto" });
+
+    // Heading 1: the real run props (Arial / AA0011 / 52 / bold), NOT the mark
+    // rPr (AAAAAA / 10) inside <w:pPr>.
+    expect(s.heading1?.run).toEqual({ font: "Arial", bold: true, color: "AA0011", size: 52 });
+    expect(s.heading1?.run?.color).not.toBe("AAAAAA");
+    expect(s.heading1?.run?.size).not.toBe(10);
+    // Paragraph props still come from <w:pPr> and are unaffected.
+    expect(s.heading1?.paragraph).toEqual({ before: 320, after: 160 });
+  });
 });
 
 describe("extractStylesFromXml — resource bounds (Finding 1)", () => {
