@@ -62,4 +62,57 @@ describe("safeRemoteImageUrl / isBlockedHost", () => {
     expect(isBlockedHost("fd00::1")).toBe(true);
     expect(isBlockedHost("fe80::1")).toBe(true);
   });
+
+  // Finding #2: numeric IP encodings that bypass a naive dotted-decimal check.
+  // isBlockedHost must reject these even when handed the RAW (un-normalised)
+  // hostname — it must not rely on a URL parser having canonicalised first.
+  it("isBlockedHost rejects non-canonical numeric IP encodings (SSRF bypass)", () => {
+    // Bare 32-bit decimal integer (2130706433 = 127.0.0.1, 3232235521 = 192.168.0.1).
+    expect(isBlockedHost("2130706433")).toBe(true);
+    expect(isBlockedHost("3232235521")).toBe(true);
+    // 0x-hex, whole and dotted.
+    expect(isBlockedHost("0x7f000001")).toBe(true);
+    expect(isBlockedHost("0x7f.0.0.1")).toBe(true);
+    // Octal (leading zero on a segment).
+    expect(isBlockedHost("0177.0.0.1")).toBe(true);
+    expect(isBlockedHost("010.0.0.1")).toBe(true);
+    // Shorthand / partial forms.
+    expect(isBlockedHost("127.1")).toBe(true);
+    expect(isBlockedHost("127.0.1")).toBe(true);
+    // Malformed all-numeric shapes (too many parts / out of range).
+    expect(isBlockedHost("1.2.3.4.5")).toBe(true);
+    expect(isBlockedHost("999.1.1.1")).toBe(true);
+  });
+
+  it("isBlockedHost still treats canonical dotted-decimal exactly as before", () => {
+    // Public → allowed.
+    expect(isBlockedHost("93.184.216.34")).toBe(false);
+    expect(isBlockedHost("1.1.1.1")).toBe(false);
+    expect(isBlockedHost("8.8.8.8")).toBe(false);
+    // Private / loopback / link-local → blocked.
+    expect(isBlockedHost("127.0.0.1")).toBe(true);
+    expect(isBlockedHost("10.0.0.5")).toBe(true);
+    expect(isBlockedHost("172.16.0.1")).toBe(true);
+    expect(isBlockedHost("192.168.1.1")).toBe(true);
+    expect(isBlockedHost("169.254.169.254")).toBe(true);
+    // "0" is a legal canonical part (0.0.0.0 is this-host → blocked), and a
+    // leading-zero MULTI-digit part is octal → rejected, not read as decimal.
+    expect(isBlockedHost("0.0.0.0")).toBe(true);
+  });
+
+  it("isBlockedHost leaves ordinary DNS names with numeric labels alone", () => {
+    expect(isBlockedHost("cdn.example.org")).toBe(false);
+    expect(isBlockedHost("v1.api.example.com")).toBe(false);
+    expect(isBlockedHost("123.example.com")).toBe(false); // not ALL-numeric labels
+    expect(isBlockedHost("img-3.hosting.net")).toBe(false);
+  });
+
+  it("safeRemoteImageUrl blocks encoded loopback forms end-to-end", () => {
+    // The URL parser normalises these to 127.0.0.1, which isBlockedHost then
+    // refuses — belt-and-suspenders with the hardening above.
+    expect(safeRemoteImageUrl("http://2130706433/x.png")).toBeNull();
+    expect(safeRemoteImageUrl("http://0x7f000001/x.png")).toBeNull();
+    expect(safeRemoteImageUrl("http://0177.0.0.1/x.png")).toBeNull();
+    expect(safeRemoteImageUrl("http://127.1/x.png")).toBeNull();
+  });
 });
