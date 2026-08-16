@@ -39,6 +39,13 @@ export interface ExportDeps extends DocxDeps {
   mermaidToSvg?: (source: string) => Promise<string>;
   /** Opt-in, default-off remote-image fetch (§7.6). Only used when enabled. */
   fetchRemoteImage?: RemoteImageFetcher;
+  /**
+   * DOM-based HTML sanitiser (DOMPurify), injected from the Obsidian layer where
+   * a real DOM exists. Present → raw HTML blocks are cleaned with it before
+   * rendering; absent (e.g. tests, mobile-less contexts) → the renderer's
+   * regex sanitiser is the sole pass. Kept out of src/core / src/html (R1/R2).
+   */
+  sanitizeHtml?: (html: string) => string;
 }
 
 export interface ExportResult {
@@ -206,6 +213,26 @@ async function resolveMermaid(
   return walk(blocks);
 }
 
+/**
+ * Clean every raw HTML block with the injected DOM sanitiser (DOMPurify) before
+ * rendering. This is the primary defence for untrusted note HTML; the renderer
+ * keeps a regex sanitiser as an always-on baseline. No-op when no sanitiser is
+ * injected (e.g. tests) — the renderer still applies its baseline.
+ */
+function sanitizeHtmlBlocks(blocks: BlockNode[], deps?: ExportDeps): BlockNode[] {
+  const sanitize = deps?.sanitizeHtml;
+  if (!sanitize) return blocks;
+  const walk = (bs: BlockNode[]): BlockNode[] =>
+    bs.map((b) => {
+      if (b.type === "htmlBlock") return { ...b, raw: sanitize(b.raw) };
+      if (b.type === "blockquote" || b.type === "callout") return { ...b, children: walk(b.children) };
+      if (b.type === "list")
+        return { ...b, children: b.children.map((it) => ({ ...it, children: walk(it.children) })) };
+      return b;
+    });
+  return walk(blocks);
+}
+
 /** Pre-scan a note for warnings without rendering (drives the modal's row). */
 export async function scanNote(
   adapter: VaultAdapter,
@@ -227,6 +254,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const warnings = new WarningCollector();
   const doc = await buildDocument(adapter, sourcePath, options, warnings, deps);
   doc.blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
+  doc.blocks = sanitizeHtmlBlocks(doc.blocks, deps);
   const pro = settings.licenceActivated;
 
   // Render fully in memory first; only then write, so a failure never leaves a

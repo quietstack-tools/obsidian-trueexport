@@ -17,8 +17,8 @@ function walk(dir: string): string[] {
 const NETWORK_CALL = /(?<![\w.])fetch\(|new\s+XMLHttpRequest|(?<![\w.])requestUrl\(/;
 
 // The ONLY two documented network calls (TECH_SPEC R6/§7.6):
-//   1. licence validation (fetch)          — src/licence/polar.ts
-//   2. opt-in remote-image fetch (requestUrl) — src/obsidian-adapter.ts
+//   1. licence validation (fetch)        — src/licence/polar.ts
+//   2. opt-in remote-image fetch (fetch, redirect-validated) — src/obsidian-adapter.ts
 const ALLOWED_NETWORK_SITES = ["src/licence/polar.ts", "src/obsidian-adapter.ts"];
 
 describe("network-call compliance (§7.6, R6)", () => {

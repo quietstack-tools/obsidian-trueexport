@@ -4,7 +4,8 @@
 // the canvas-based SVG rasteriser for the DOCX renderer. This is the only file
 // besides src/licence/ that may import from "obsidian" directly (R1/R2).
 
-import { App, Component, MarkdownRenderer, TFile, normalizePath, requestUrl } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile, normalizePath } from "obsidian";
+import DOMPurify from "dompurify";
 import type { VaultAdapter } from "./core/adapter";
 import type { RemoteImageFetcher } from "./core/resolver/context";
 import { safeRemoteImageUrl } from "./core/util/url";
@@ -68,33 +69,73 @@ export class ObsidianVaultAdapter implements VaultAdapter {
   }
 }
 
+const MAX_REDIRECT_HOPS = 3;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
 /**
  * The opt-in remote-image fetch capability (§7.6) — the SECOND documented
  * network call in the codebase, wired only when the user enables remote images.
- * Uses Obsidian's requestUrl (CORS-free, works on mobile). Returns null on any
- * failure (network error, non-200, or a non-image content type) so the resolver
- * degrades to a placeholder + warning rather than aborting.
+ *
+ * SSRF hardening: `safeRemoteImageUrl` validates the initial target, but that is
+ * not enough on its own — a public host can 30x-redirect to an internal address.
+ * Obsidian's requestUrl follows redirects blindly with no hook to inspect the
+ * chain (its RequestUrlParam has no redirect option), so we drive the request
+ * with the platform's fetch using redirect:"manual" and re-validate EVERY hop's
+ * target against the same allow-list before following it, up to MAX_REDIRECT_HOPS.
+ * Any blocked hop, an un-inspectable (opaque) redirect, or too many hops → null,
+ * which the resolver degrades to a placeholder + warning. `fetchImpl` is
+ * injectable so tests never touch the network.
  */
-export function createRemoteImageFetcher(): RemoteImageFetcher {
+export function createRemoteImageFetcher(fetch: typeof globalThis.fetch = globalThis.fetch): RemoteImageFetcher {
   return async (url) => {
-    // SSRF guard: only http/https to public hosts. Refuses loopback / private /
-    // link-local targets (e.g. cloud metadata 169.254.169.254, localhost admin
-    // panels). null → treat as an un-fetchable image (placeholder + warning).
-    const safe = safeRemoteImageUrl(url);
-    if (safe === null) return null;
+    let current = safeRemoteImageUrl(url);
+    if (current === null) return null;
     try {
-      const res = await requestUrl({ url: safe, method: "GET", throw: false });
-      if (res.status < 200 || res.status >= 300) return null;
-      const contentType = (res.headers?.["content-type"] ?? res.headers?.["Content-Type"] ?? "")
-        .split(";")[0]
-        .trim()
-        .toLowerCase();
-      if (!contentType.startsWith("image/")) return null;
-      return { data: res.arrayBuffer, mimeType: contentType };
+      for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
+        const res = await fetch(current, { method: "GET", redirect: "manual" });
+
+        // A cross-origin redirect the runtime won't let us inspect: refuse
+        // rather than risk following it to an internal host.
+        if (res.type === "opaqueredirect") return null;
+
+        if (REDIRECT_STATUSES.has(res.status)) {
+          const location = res.headers.get("location");
+          if (!location) return null;
+          // Resolve relative Locations against the current URL, then re-validate.
+          const next = safeRemoteImageUrl(new URL(location, current).toString());
+          if (next === null) return null; // redirect target is blocked → refuse
+          current = next;
+          continue;
+        }
+
+        if (!res.ok) return null;
+        const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+        if (!contentType.startsWith("image/")) return null;
+        return { data: await res.arrayBuffer(), mimeType: contentType };
+      }
+      return null; // exceeded the redirect-hop limit
     } catch {
       return null;
     }
   };
+}
+
+/**
+ * The injected HTML-sanitiser capability. Runs DOMPurify against the real DOM
+ * that exists in the Obsidian runtime — src/core and src/html stay DOM-free
+ * (R1/R2), so DOMPurify is imported ONLY here and threaded in as a dependency,
+ * exactly like the SVG rasteriser and Mermaid renderer. Used to clean raw HTML
+ * blocks from a note before they are emitted into an export (which is opened
+ * outside Obsidian's own sandbox). The renderer's regex sanitiser remains as an
+ * always-on baseline; this is the stronger, DOM-accurate primary pass.
+ */
+export function createHtmlSanitizer(): (html: string) => string {
+  const purify = DOMPurify(window);
+  return (html) =>
+    purify.sanitize(html, {
+      USE_PROFILES: { html: true }, // no <script>, no SVG/MathML passthrough
+      FORBID_TAGS: ["form", "iframe", "object", "embed", "base", "meta", "link"],
+    });
 }
 
 /**
