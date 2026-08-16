@@ -12,13 +12,15 @@ function walk(dir: string): string[] {
   return out;
 }
 
-// Match real call sites — `fetch(` / `requestUrl(` with no space — so prose in
-// comments (e.g. "the remote-image fetch (§7.6)") doesn't trip the guard.
-const NETWORK_CALL = /(?<![\w.])fetch\(|new\s+XMLHttpRequest|(?<![\w.])requestUrl\(/;
+// Match real call sites — `fetch(` / `requestUrl(` with no space — plus the
+// `= requestUrl` transport binding (the remote-image fetcher takes requestUrl as
+// its injectable default rather than calling it inline), so prose in comments
+// (e.g. "the remote-image fetch (§7.6)") doesn't trip the guard.
+const NETWORK_CALL = /(?<![\w.])fetch\(|new\s+XMLHttpRequest|(?<![\w.])requestUrl\(|=\s*requestUrl\b/;
 
 // The ONLY two documented network calls (TECH_SPEC R6/§7.6):
-//   1. licence validation (fetch)        — src/licence/polar.ts
-//   2. opt-in remote-image fetch (fetch, redirect-validated) — src/obsidian-adapter.ts
+//   1. licence validation (fetch)                — src/licence/polar.ts
+//   2. opt-in remote-image fetch (requestUrl, CORS-free) — src/obsidian-adapter.ts
 const ALLOWED_NETWORK_SITES = ["src/licence/polar.ts", "src/obsidian-adapter.ts"];
 
 describe("network-call compliance (§7.6, R6)", () => {

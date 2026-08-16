@@ -40,9 +40,11 @@ export function safeExternalUrl(url: string): string | null {
  * hosts in loopback / private / link-local ranges to blunt SSRF. Returns the URL
  * (normalised by the URL parser) or null if it must not be fetched.
  *
- * Residual risk: a public host that HTTP-redirects to an internal one is not
- * caught here (the redirect is followed by the platform's requestUrl). This is
- * documented next to the "Allow remote images" setting.
+ * Residual risk: this validates a single URL. A public host that HTTP-redirects
+ * to an internal one is re-validated per hop ONLY when the transport surfaces the
+ * redirect; when Obsidian's requestUrl follows it internally the internal target
+ * is not caught here. See createRemoteImageFetcher for the full tradeoff; it is
+ * also documented next to the "Allow remote images" setting.
  */
 export function safeRemoteImageUrl(url: string): string | null {
   let parsed: URL;
