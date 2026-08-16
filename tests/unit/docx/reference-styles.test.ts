@@ -109,6 +109,66 @@ describe("extractStylesFromXml", () => {
     expect(extractStylesFromXml("not xml at all <<<")).toEqual({});
     expect(extractStylesFromXml("")).toEqual({});
   });
+
+  it("drops a non-hex colour (defence-in-depth), keeping other run props", () => {
+    const xml = `<w:styles xmlns:w="x"><w:style w:styleId="Heading1"><w:rPr>` +
+      `<w:color w:val="notacolor"/><w:sz w:val="40"/></w:rPr></w:style></w:styles>`;
+    const s = extractStylesFromXml(xml);
+    expect(s.heading1?.run?.color).toBeUndefined();
+    expect(s.heading1?.run?.size).toBe(40);
+  });
+});
+
+describe("extractStylesFromXml — resource bounds (Finding 1)", () => {
+  // The exact pathological input from the security review: 20000 unclosed
+  // <w:style> openers (~460KB). The old per-category scan-to-close regexes took
+  // ~10.4s (O(n^2)); the linear tokenizer must handle it in milliseconds.
+  it("parses the 460KB unclosed-tag input in milliseconds, not seconds", () => {
+    const pathological =
+      "<w:styles xmlns:w='x'>" + '<w:style w:styleId="Z">'.repeat(20000) + "</w:styles>";
+    expect(pathological.length).toBeGreaterThan(450_000);
+
+    const start = performance.now();
+    const result = extractStylesFromXml(pathological);
+    const elapsed = performance.now() - start;
+
+    expect(result).toEqual({}); // no complete <w:style> blocks → nothing extracted
+    // Was ~10,400ms before the fix; assert a tight bound well under that.
+    expect(elapsed).toBeLessThan(250);
+  });
+
+  it("returns {} for a styles.xml over the 2MB cap without scanning it", () => {
+    const huge = "<w:styles>" + "x".repeat(2 * 1024 * 1024 + 10);
+    const start = performance.now();
+    expect(extractStylesFromXml(huge)).toEqual({});
+    expect(performance.now() - start).toBeLessThan(50);
+  });
+});
+
+describe("parseReferenceStyles — resource bounds (Findings 1 & 2)", () => {
+  it("rejects an oversized raw input before it reaches JSZip", async () => {
+    const oversized = new ArrayBuffer(50 * 1024 * 1024 + 1);
+    await expect(parseReferenceStyles(oversized)).resolves.toBeNull();
+  });
+
+  it("rejects a decompression bomb via the declared uncompressed size (small zip, 3MB entry)", async () => {
+    const zip = await JSZip.loadAsync(new Uint8Array(FIXTURE));
+    // 3MB of highly-compressible text → tiny compressed zip, but declared
+    // uncompressed size (~3MB) exceeds the 2MB cap, so we bail before expanding.
+    zip.file("word/styles.xml", "<w:styles xmlns:w='x'>" + "A".repeat(3 * 1024 * 1024) + "</w:styles>");
+    const bytes = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+    expect(bytes.byteLength).toBeLessThan(200 * 1024); // small on the wire
+    await expect(parseReferenceStyles(bytes)).resolves.toBeNull();
+  });
+
+  it("returns null (not a hang) for a reference whose styles.xml is pathological", async () => {
+    const zip = await JSZip.loadAsync(new Uint8Array(FIXTURE));
+    zip.file("word/styles.xml", "<w:styles xmlns:w='x'>" + '<w:style w:styleId="Z">'.repeat(20000) + "</w:styles>");
+    const bytes = await zip.generateAsync({ type: "arraybuffer" });
+    const start = performance.now();
+    await expect(parseReferenceStyles(bytes)).resolves.toBeNull();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
 });
 
 describe("parseReferenceStyles", () => {

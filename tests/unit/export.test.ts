@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import * as JSZip from "jszip";
-import { exportNote, exportFolder, scanNote, type VaultWriter } from "../../src/export";
+import { exportNote, exportFolder, scanNote, clearReferenceStyleCache, type VaultWriter } from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
 import { MemoryVaultAdapter } from "../helpers/memory-adapter";
 
@@ -316,6 +316,8 @@ describe("exportFolder (batch)", () => {
 });
 
 describe("reference DOCX (Pro; §5.1)", () => {
+  beforeEach(() => clearReferenceStyleCache());
+
   const refAdapter = (binaries?: Record<string, ArrayBuffer>) =>
     new MemoryVaultAdapter({ notes: { "folder/Note.md": "# Title\n\nBody text." }, binaries });
 
@@ -385,5 +387,51 @@ describe("reference DOCX (Pro; §5.1)", () => {
     expect(
       result.warnings.some((w) => w.construct === "reference" && /Could not read styles/.test(w.message)),
     ).toBe(true);
+  });
+
+  it("degrades quickly (no DoS) when the reference styles.xml is pathological", async () => {
+    // A reference .docx whose styles.xml is the review's 460KB unclosed-tag input.
+    const zip = await JSZip.loadAsync(new Uint8Array(REFERENCE_DOCX));
+    zip.file(
+      "word/styles.xml",
+      "<w:styles xmlns:w='x'>" + '<w:style w:styleId="Z">'.repeat(20000) + "</w:styles>",
+    );
+    const evil = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+
+    const writer = new FakeWriter();
+    const start = performance.now();
+    const result = await exportNote({
+      adapter: refAdapter({ "templates/house.docx": evil }),
+      writer,
+      settings: settings({ licenceActivated: true, referenceDocxPath: "templates/house.docx" }),
+      sourcePath: "folder/Note.md",
+      format: "docx",
+      template: "default",
+    });
+    // Whole export incl. render; parse alone was ~10.4s before the linear rewrite.
+    expect(performance.now() - start).toBeLessThan(2000);
+    const styles = await stylesXmlOf(writer.files.get(result.outputPath));
+    expect(styles).toContain("Calibri"); // built-in fallback
+    expect(result.warnings.some((w) => w.construct === "reference")).toBe(true);
+  });
+
+  it("caches the parsed reference by mtime (no re-read on the second export)", async () => {
+    const adapter = refAdapter({ "templates/house.docx": REFERENCE_DOCX });
+    const readSpy = vi.spyOn(adapter, "readBinary");
+    const s = settings({ licenceActivated: true, referenceDocxPath: "templates/house.docx" });
+    const run = () =>
+      exportNote({
+        adapter,
+        writer: new FakeWriter(),
+        settings: s,
+        sourcePath: "folder/Note.md",
+        format: "docx",
+        template: "default",
+      });
+    await run();
+    await run();
+    // The reference file is read once across two exports; the second is a cache hit.
+    const refReads = readSpy.mock.calls.filter((c) => c[0] === "templates/house.docx").length;
+    expect(refReads).toBe(1);
   });
 });

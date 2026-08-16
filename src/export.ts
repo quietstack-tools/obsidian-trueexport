@@ -256,9 +256,23 @@ export async function scanNote(
 }
 
 /**
+ * Cache of successfully-parsed reference styles, keyed by vault path, guarded by
+ * the file's modified time so a reference isn't re-read and re-parsed on every
+ * export. Persists for the plugin session; bounded by the number of distinct
+ * reference paths (tiny). Exposed for test isolation.
+ */
+const referenceCache = new Map<string, { mtime: number; styles: ReferenceStyles }>();
+
+/** Clear the reference-style cache (test hygiene). */
+export function clearReferenceStyleCache(): void {
+  referenceCache.clear();
+}
+
+/**
  * Load and parse a Pro user's reference .docx (§5.1). Pro-gated and best-effort:
  * a missing, unreadable, or unparseable reference never aborts the export — it
  * degrades to built-in styles with a specific, actionable warning (§7.4).
+ * Results are cached by (path, mtime) to avoid re-parsing on every export.
  */
 async function loadReferenceStyles(
   adapter: VaultAdapter,
@@ -269,6 +283,12 @@ async function loadReferenceStyles(
 ): Promise<ReferenceStyles | undefined> {
   const path = settings.referenceDocxPath.trim();
   if (!pro || path === "") return undefined;
+
+  const mtime = adapter.getModifiedTime ? await adapter.getModifiedTime(path) : null;
+  if (mtime !== null) {
+    const cached = referenceCache.get(path);
+    if (cached && cached.mtime === mtime) return cached.styles;
+  }
 
   const bytes = await adapter.readBinary(path);
   if (!bytes) {
@@ -289,6 +309,8 @@ async function loadReferenceStyles(
     });
     return undefined;
   }
+
+  if (mtime !== null) referenceCache.set(path, { mtime, styles });
   return styles;
 }
 

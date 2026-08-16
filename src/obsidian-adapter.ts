@@ -66,6 +66,11 @@ export class ObsidianVaultAdapter implements VaultAdapter {
     return MIME_TYPES[extensionOf(path)] ?? "application/octet-stream";
   }
 
+  async getModifiedTime(path: string): Promise<number | null> {
+    const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    return file instanceof TFile ? file.stat.mtime : null;
+  }
+
   async listNotesInFolder(folderPath: string): Promise<string[]> {
     const prefix = normalizePath(folderPath).replace(/\/$/, "");
     return this.app.vault

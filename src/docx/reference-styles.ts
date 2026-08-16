@@ -68,19 +68,34 @@ export interface ReferenceStyles {
 
 const STYLES_PART = "word/styles.xml";
 
+// Resource guards (§7.4). A reference .docx is untrusted input, so we bound the
+// worst-case work/memory: a real house-style styles.xml is well under 100 KB,
+// so anything over these caps degrades to built-in styles + a warning rather
+// than freezing the export (e.g. a malformed file with thousands of unclosed
+// <w:style> tags, or a decompression bomb).
+const MAX_DOCX_BYTES = 50 * 1024 * 1024; // raw .docx we'll even hand to JSZip
+const MAX_STYLES_XML_BYTES = 2 * 1024 * 1024; // decompressed word/styles.xml
+
 /**
  * Parse a reference .docx's style definitions. Returns null on ANY problem
- * (not a zip, no styles.xml, unreadable XML) so a bad reference never aborts an
- * export — the caller warns and falls back to the built-in table.
+ * (too large, not a zip, no styles.xml, unreadable XML) so a bad reference never
+ * aborts an export — the caller warns and falls back to the built-in table.
  */
 export async function parseReferenceStyles(bytes: ArrayBuffer): Promise<ReferenceStyles | null> {
   try {
+    // Cap the raw input before it ever reaches JSZip.
+    if (bytes.byteLength > MAX_DOCX_BYTES) return null;
     // Wrap in a Uint8Array: JSZip's input-type detection is stricter about a
     // bare ArrayBuffer across JS realms, but always accepts a typed-array view.
     const zip = await JSZip.loadAsync(new Uint8Array(bytes));
     const entry = zip.file(STYLES_PART);
     if (!entry) return null;
+    // Refuse a decompression bomb BEFORE materialising the entry: the declared
+    // uncompressed size is in the zip metadata, so we can bail without expanding.
+    const declared = declaredUncompressedSize(entry);
+    if (declared !== undefined && declared > MAX_STYLES_XML_BYTES) return null;
     const xml = await entry.async("string");
+    if (xml.length > MAX_STYLES_XML_BYTES) return null; // belt-and-braces
     const styles = extractStylesFromXml(xml);
     // A valid styles.xml with nothing we recognise is still a "no-op" reference;
     // treat an empty extraction as null so the caller keeps built-in styles.
@@ -90,11 +105,20 @@ export async function parseReferenceStyles(bytes: ArrayBuffer): Promise<Referenc
   }
 }
 
+/** The entry's declared uncompressed size from the zip's central directory, if
+ *  JSZip exposes it — lets us reject a bomb without decompressing. */
+function declaredUncompressedSize(entry: unknown): number | undefined {
+  const data = (entry as { _data?: { uncompressedSize?: unknown } })._data;
+  return data && typeof data.uncompressedSize === "number" ? data.uncompressedSize : undefined;
+}
+
 /** Pure OOXML → ReferenceStyles. Exported for unit testing without a zip. */
 export function extractStylesFromXml(xml: string): ReferenceStyles {
+  if (xml.length > MAX_STYLES_XML_BYTES) return {};
+  const index = indexStyleBlocks(xml);
   const out: ReferenceStyles = {};
 
-  const normal = mergeStyles(defaultsStyle(xml), namedStyle(xml, "Normal", "Normal"));
+  const normal = mergeStyles(defaultsStyle(xml), styleFrom(index, "Normal", "Normal"));
   if (normal) out.normal = normal;
 
   const headings: (keyof ReferenceStyles)[] = [
@@ -107,21 +131,89 @@ export function extractStylesFromXml(xml: string): ReferenceStyles {
   ];
   headings.forEach((key, i) => {
     const n = i + 1;
-    const style = namedStyle(xml, `Heading${n}`, `Heading ${n}`);
+    const style = styleFrom(index, `Heading${n}`, `Heading ${n}`);
     if (style) out[key] = style;
   });
 
-  const quote = namedStyle(xml, "Quote", "Quote");
+  const quote = styleFrom(index, "Quote", "Quote");
   if (quote) out.quote = quote;
-  const caption = namedStyle(xml, "Caption", "Caption");
+  const caption = styleFrom(index, "Caption", "Caption");
   if (caption) out.caption = caption;
-  const code = namedStyle(xml, "Code", "Code");
+  const code = styleFrom(index, "Code", "Code");
   if (code) out.code = code;
 
   return out;
 }
 
 // ---- OOXML block extraction ----
+
+interface StyleIndex {
+  /** lowercased w:styleId → inner XML of that <w:style> block */
+  byId: Map<string, string>;
+  /** lowercased display name (<w:name w:val>) → inner XML */
+  byName: Map<string, string>;
+}
+
+/**
+ * Index every <w:style …>…</w:style> block in a SINGLE linear pass, keyed by
+ * styleId and by display name. The cursor only ever moves forward (indexOf from
+ * a monotonically increasing position), so this is O(n) — replacing the old
+ * per-category scan-to-close regexes that were O(n²) on malformed input with
+ * many unclosed tags. Built once and reused for all style categories.
+ */
+function indexStyleBlocks(xml: string): StyleIndex {
+  const byId = new Map<string, string>();
+  const byName = new Map<string, string>();
+  const OPEN = "<w:style";
+  const CLOSE = "</w:style>";
+  let cursor = 0;
+  while (true) {
+    const open = xml.indexOf(OPEN, cursor);
+    if (open === -1) break;
+    // Match only the <w:style> element — not <w:styles>, <w:styleId>, etc.
+    const boundary = xml[open + OPEN.length];
+    if (boundary !== undefined && !isTagBoundary(boundary)) {
+      cursor = open + OPEN.length;
+      continue;
+    }
+    const gt = xml.indexOf(">", open);
+    if (gt === -1) break;
+    const openTag = xml.slice(open, gt + 1);
+    if (openTag.endsWith("/>")) {
+      cursor = gt + 1; // self-closed <w:style/> — no block body
+      continue;
+    }
+    const close = xml.indexOf(CLOSE, gt + 1);
+    if (close === -1) break; // no complete block remains → stop (bounds the work)
+    const inner = xml.slice(gt + 1, close);
+
+    const styleId = tagAttrRaw(openTag, "w:styleId");
+    if (styleId) {
+      const key = styleId.toLowerCase();
+      if (!byId.has(key)) byId.set(key, inner);
+    }
+    const name = /<w:name\b[^>]*\bw:val="([^"]*)"/i.exec(inner)?.[1];
+    if (name) {
+      const key = name.toLowerCase();
+      if (!byName.has(key)) byName.set(key, inner);
+    }
+    cursor = close + CLOSE.length;
+  }
+  return { byId, byName };
+}
+
+/**
+ * Look up a style by styleId (preferred) or, failing that, by display name —
+ * Word uses ids like "Heading1" with names like "heading 1", but custom
+ * templates vary, so we accept either.
+ */
+function styleFrom(index: StyleIndex, styleId: string, name: string): RefStyle | undefined {
+  const inner = index.byId.get(styleId.toLowerCase()) ?? index.byName.get(name.toLowerCase());
+  if (inner === undefined) return undefined;
+  const run = runProps(firstBlock(inner, "w:rPr"));
+  const paragraph = paraProps(firstBlock(inner, "w:pPr"));
+  return toStyle(run, paragraph);
+}
 
 /** The document defaults (<w:docDefaults>) → the Normal style's base. */
 function defaultsStyle(xml: string): RefStyle | undefined {
@@ -133,42 +225,39 @@ function defaultsStyle(xml: string): RefStyle | undefined {
 }
 
 /**
- * A named <w:style> by styleId (preferred) or, failing that, by w:name — Word
- * uses ids like "Heading1" with display names like "heading 1", but custom
- * templates vary, so we accept either.
+ * Inner text of the first complete <tag …>…</tag> in `xml`, else undefined.
+ * Linear (indexOf-based) and boundary-aware, so <w:rPr> is not matched by
+ * <w:rPrDefault>. Used for unique/near-unique containers (docDefaults, and
+ * rPr/pPr within a single already-bounded style block).
  */
-function namedStyle(xml: string, styleId: string, name: string): RefStyle | undefined {
-  const block = styleBlockById(xml, styleId) ?? styleBlockByName(xml, name);
-  if (!block) return undefined;
-  const run = runProps(firstBlock(block, "w:rPr"));
-  const paragraph = paraProps(firstBlock(block, "w:pPr"));
-  return toStyle(run, paragraph);
-}
-
-function styleBlockById(xml: string, styleId: string): string | undefined {
-  const re = new RegExp(
-    `<w:style\\b[^>]*\\bw:styleId="${escapeRe(styleId)}"[^>]*>([\\s\\S]*?)</w:style>`,
-    "i",
-  );
-  return re.exec(xml)?.[1];
-}
-
-function styleBlockByName(xml: string, name: string): string | undefined {
-  // Scan each <w:style> block and match its <w:name w:val="..."> case-insensitively.
-  const re = /<w:style\b[^>]*>([\s\S]*?)<\/w:style>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml)) !== null) {
-    const nameVal = /<w:name\b[^>]*\bw:val="([^"]*)"/i.exec(m[1])?.[1];
-    if (nameVal && nameVal.toLowerCase() === name.toLowerCase()) return m[1];
-  }
-  return undefined;
-}
-
-/** The first <tag>…</tag> block within `xml`, or undefined. */
 function firstBlock(xml: string | undefined, tag: string): string | undefined {
   if (!xml) return undefined;
-  const re = new RegExp(`<${escapeRe(tag)}\\b[^>]*>([\\s\\S]*?)</${escapeRe(tag)}>`, "i");
-  return re.exec(xml)?.[1];
+  const open = `<${tag}`;
+  const close = `</${tag}>`;
+  let cursor = 0;
+  while (true) {
+    const start = xml.indexOf(open, cursor);
+    if (start === -1) return undefined;
+    const boundary = xml[start + open.length];
+    if (boundary !== undefined && !isTagBoundary(boundary)) {
+      cursor = start + open.length;
+      continue;
+    }
+    const gt = xml.indexOf(">", start);
+    if (gt === -1) return undefined;
+    if (xml[gt - 1] === "/") {
+      cursor = gt + 1; // self-closed → no inner block; keep looking
+      continue;
+    }
+    const end = xml.indexOf(close, gt + 1);
+    if (end === -1) return undefined;
+    return xml.slice(gt + 1, end);
+  }
+}
+
+/** A character that ends an element name (so we don't match a longer tag). */
+function isTagBoundary(ch: string): boolean {
+  return ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === "/" || ch === ">";
 }
 
 // ---- Property extraction ----
@@ -179,7 +268,9 @@ function runProps(block: string | undefined): RefRunProps | undefined {
   const font = attr(block, "w:rFonts", "w:ascii");
   if (font) props.font = font;
   const color = attr(block, "w:color", "w:val");
-  if (color && color.toLowerCase() !== "auto") props.color = color;
+  // OOXML w:color is a 6-hex RRGGBB or "auto"; accept only a real hex value and
+  // drop anything else (incl. "auto") so a junk colour falls back to built-in.
+  if (color && /^[0-9A-Fa-f]{6}$/.test(color)) props.color = color;
   const size = attr(block, "w:sz", "w:val");
   if (size && /^\d+$/.test(size)) props.size = Number(size);
   if (toggle(block, "w:b")) props.bold = true;
