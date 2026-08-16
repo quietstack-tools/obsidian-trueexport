@@ -68,13 +68,35 @@ export function isBlockedHost(hostname: string): boolean {
   // Common internal / metadata pseudo-TLDs.
   if (host.endsWith(".internal") || host.endsWith(".local")) return true;
 
-  if (isIpv4(host)) return isBlockedIpv4(host);
   if (host.includes(":")) return isBlockedIpv6(host);
+
+  // Any host that is entirely numeric labels is an IPv4 address in *some*
+  // encoding, not a DNS name. A WHATWG URL parser already normalises these to
+  // dotted-decimal before we get here, but we must not depend on that: the ONLY
+  // numeric form we range-check is the canonical dotted-decimal quad. Every
+  // other encoding — a bare decimal integer (2130706433), 0x-hex (0x7f000001),
+  // octal (0177.0.0.1), or a shorthand (127.1) — is refused outright, since a
+  // resolver may expand it to a loopback/private address and no legitimate
+  // image host uses these forms. (SSRF-bypass hardening.)
+  if (isNumericHost(host)) {
+    return isCanonicalIpv4(host) ? isBlockedIpv4(host) : true;
+  }
   return false;
 }
 
-function isIpv4(host: string): boolean {
-  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+/** Every dot-separated label is a numeric literal (decimal, 0x-hex, or octal). */
+function isNumericHost(host: string): boolean {
+  const labels = host.split(".");
+  return labels.every((label) => /^\d+$/.test(label) || /^0x[0-9a-f]+$/.test(label));
+}
+
+/** The canonical dotted-decimal quad: four plain-decimal parts, no leading
+ *  zeros (which would imply octal), each in 0-255. This is the only numeric
+ *  host form we range-check rather than refuse. */
+function isCanonicalIpv4(host: string): boolean {
+  const parts = host.split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((p) => /^(0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255);
 }
 
 function isBlockedIpv4(host: string): boolean {
