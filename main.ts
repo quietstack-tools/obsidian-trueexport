@@ -11,6 +11,7 @@ import {
   createSvgRasterizer,
   createMermaidRenderer,
   createRemoteImageFetcher,
+  createHtmlSanitizer,
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import type { VaultAdapter } from "./src/core/adapter";
@@ -53,6 +54,9 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       // The remote-image fetch capability. It only ever runs when the user has
       // enabled the default-off "Allow remote images" setting (§7.6).
       fetchRemoteImage: createRemoteImageFetcher(),
+      // DOM-based sanitiser for raw HTML blocks (defence-in-depth over the
+      // renderer's regex baseline and the document CSP).
+      sanitizeHtml: createHtmlSanitizer(),
       // PDF is desktop-only: only wire the Electron seam there (§7.5).
       ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
     };

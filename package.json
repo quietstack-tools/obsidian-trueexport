@@ -20,6 +20,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "docx": "^9.7.1",
+    "dompurify": "^3.4.13",
     "jszip": "^3.10.1"
   },
   "devDependencies": {
