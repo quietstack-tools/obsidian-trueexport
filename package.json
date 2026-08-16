@@ -1,6 +1,6 @@
 {
   "name": "obsidian-trueexport",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Export Obsidian notes to Word, PDF and HTML — faithful to your syntax, no Pandoc required.",
   "main": "index.js",
   "scripts": {
@@ -16,7 +16,7 @@
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
   "keywords": [],
-  "author": "",
+  "author": "QuietStack",
   "license": "UNLICENSED",
   "dependencies": {
     "docx": "^9.7.1",

@@ -10,10 +10,14 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.ts"],
+      // Locked to the sustained level (actual ≈ 88 lines / 86 stmts / 86 funcs
+      // / 82 branches) with ~6-10 points of headroom, so a small legitimate
+      // dip won't fail CI but a real regression will.
       thresholds: {
-        lines: 70,
-        functions: 70,
-        branches: 60,
+        statements: 80,
+        lines: 82,
+        functions: 80,
+        branches: 72,
       },
     },
   },

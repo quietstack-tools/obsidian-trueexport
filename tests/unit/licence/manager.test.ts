@@ -3,7 +3,7 @@ import { LicenceManager, type LicenceHost, type Validator } from "../../../src/l
 
 function makeHost(activated = false): LicenceHost & { saveSettings: ReturnType<typeof vi.fn> } {
   return {
-    settings: { licenceKey: activated ? "OLD-KEY" : "", licenceActivated: activated, deviceCount: activated ? 1 : 0 },
+    settings: { licenceKey: activated ? "OLD-KEY" : "", licenceActivated: activated, deviceLimit: activated ? 1 : 0 },
     saveSettings: vi.fn(async () => {}),
   };
 }
@@ -18,12 +18,12 @@ describe("LicenceManager.activate", () => {
 
   it("activates and stores state on a valid key", async () => {
     const host = makeHost();
-    const mgr = new LicenceManager(host, async () => ({ status: "valid", message: "ok", deviceCount: 3 }));
+    const mgr = new LicenceManager(host, async () => ({ status: "valid", message: "ok", deviceLimit: 3 }));
     const outcome = await mgr.activate(" ABC-123 ");
     expect(outcome.activated).toBe(true);
     expect(host.settings.licenceActivated).toBe(true);
     expect(host.settings.licenceKey).toBe("ABC-123"); // trimmed
-    expect(host.settings.deviceCount).toBe(3);
+    expect(host.settings.deviceLimit).toBe(3);
     expect(host.saveSettings).toHaveBeenCalled();
   });
 
@@ -84,6 +84,6 @@ describe("LicenceManager.deactivate", () => {
     await mgr.deactivate();
     expect(host.settings.licenceActivated).toBe(false);
     expect(host.settings.licenceKey).toBe("");
-    expect(host.settings.deviceCount).toBe(0);
+    expect(host.settings.deviceLimit).toBe(0);
   });
 });

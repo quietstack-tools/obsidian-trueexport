@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from "../../../src/ui/settings";
 function makeTab(activated = false) {
   const licence = {
     isActivated: activated,
-    deviceCount: activated ? 2 : 0,
+    deviceLimit: activated ? 2 : 0,
     activate: vi.fn(async () => ({ activated: true, message: "TrueExport Pro activated. Thank you!" })),
     deactivate: vi.fn(async () => {}),
   };
@@ -112,12 +112,12 @@ describe("TrueExportSettingTab — licence + Pro gating", () => {
     expect(refInput.disabled).toBe(true);
   });
 
-  it("shows Deactivate, device count, and enables reference-DOCX when activated", () => {
+  it("shows Deactivate, device limit, and enables reference-DOCX when activated", () => {
     const { tab } = makeTab(true);
     tab.display();
     const buttons = Array.from(tab.containerEl.querySelectorAll("button")).map((b) => b.textContent);
     expect(buttons).toContain("Deactivate");
-    expect(findSetting(tab, "Licence key").textContent).toContain("2 device(s)");
+    expect(findSetting(tab, "Licence key").textContent).toContain("up to 2 device(s)");
     const refInput = findSetting(tab, "Reference DOCX (house style)").querySelector("input") as HTMLInputElement;
     expect(refInput.disabled).toBe(false);
   });

@@ -18,11 +18,20 @@ function okJson(data: unknown) {
 }
 
 describe("validateLicence", () => {
-  it("returns 'valid' with device count when the key is granted", async () => {
-    mockFetch(async () => okJson({ status: "granted", usage: 2 }));
+  it("returns 'valid' with the device limit (Polar's limit_activations) when granted", async () => {
+    // Shape confirmed against the live validate response: the device figure is
+    // `limit_activations`; `usage` is an unrelated usage-meter and must be ignored.
+    mockFetch(async () => okJson({ status: "granted", limit_activations: 3, usage: 0 }));
     const result = await validateLicence("KEY");
     expect(result.status).toBe("valid");
-    expect(result.deviceCount).toBe(2);
+    expect(result.deviceLimit).toBe(3);
+  });
+
+  it("does not mistake the usage-meter for the device limit", async () => {
+    mockFetch(async () => okJson({ status: "granted", usage: 7 }));
+    const result = await validateLicence("KEY");
+    expect(result.status).toBe("valid");
+    expect(result.deviceLimit).toBeUndefined();
   });
 
   it("returns 'invalid' when the server reaches but rejects the key", async () => {

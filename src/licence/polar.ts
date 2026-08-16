@@ -20,8 +20,14 @@ export interface LicenceResult {
    */
   status: "valid" | "invalid" | "error";
   message: string;
-  /** Activation count for this key, if the API returns it (§6.4 device count). */
-  deviceCount?: number;
+  /**
+   * The key's device/activation limit (§6.4), from Polar's `limit_activations`.
+   * Confirmed against the live validate response — this is the only device
+   * figure Polar returns here; there is no current-activation count in the
+   * customer-portal validate payload. (The earlier code read `usage`, which is
+   * an unrelated usage-meter that stays 0.)
+   */
+  deviceLimit?: number;
 }
 
 export async function validateLicence(key: string): Promise<LicenceResult> {
@@ -46,7 +52,7 @@ export async function validateLicence(key: string): Promise<LicenceResult> {
 
     const data = (await res.json()) as Record<string, unknown> | null;
     if (isGranted(data)) {
-      return { status: "valid", message: "Licence key accepted.", deviceCount: usageCount(data) };
+      return { status: "valid", message: "Licence key accepted.", deviceLimit: activationLimit(data) };
     }
     return {
       status: "invalid",
@@ -70,8 +76,12 @@ function isGranted(data: Record<string, unknown> | null): boolean {
   return data["status"] === "granted" || data["valid"] === true;
 }
 
-/** Best-effort device/activation count; field shape depends on Polar's response. */
-function usageCount(data: Record<string, unknown> | null): number | undefined {
-  if (data && typeof data["usage"] === "number") return data["usage"];
+/**
+ * The key's activation (device) limit. Polar's validate response returns
+ * `limit_activations` (e.g. 3); it does NOT return a current-activation count,
+ * so this is a limit, not a usage figure. Verified against the live API.
+ */
+function activationLimit(data: Record<string, unknown> | null): number | undefined {
+  if (data && typeof data["limit_activations"] === "number") return data["limit_activations"];
   return undefined;
 }

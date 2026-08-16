@@ -48,7 +48,7 @@ export interface TrueExportSettings {
   // Licence (activation logic lands in Stage 8)
   licenceKey: string;
   licenceActivated: boolean;
-  deviceCount: number;
+  deviceLimit: number;
   // Remembered choices
   lastFormat: ExportFormat;
   lastTemplate: TemplateId;
@@ -77,7 +77,7 @@ export const DEFAULT_SETTINGS: TrueExportSettings = {
   transclusionDepth: 5,
   licenceKey: "",
   licenceActivated: false,
-  deviceCount: 0,
+  deviceLimit: 0,
   lastFormat: "docx",
   lastTemplate: "default",
 };
