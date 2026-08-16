@@ -5,10 +5,17 @@
 // besides src/licence/ that may import from "obsidian" directly (R1/R2).
 
 import { App, Component, MarkdownRenderer, TFile, normalizePath } from "obsidian";
-import DOMPurify from "dompurify";
+import * as DOMPurifyModule from "dompurify";
 import type { VaultAdapter } from "./core/adapter";
 import type { RemoteImageFetcher } from "./core/resolver/context";
 import { safeRemoteImageUrl } from "./core/util/url";
+
+// DOMPurify ships CJS `export =` types (tsc, classic node resolution, sees the
+// namespace AS the callable factory) but an ESM `default` build (what the bundler
+// loads, where the namespace is { default: factory }). Reconcile both shapes to
+// the callable factory here — no `any`, and no tsconfig relaxation needed.
+const createDOMPurify =
+  (DOMPurifyModule as unknown as { default?: typeof DOMPurifyModule }).default ?? DOMPurifyModule;
 
 const MIME_TYPES: Record<string, string> = {
   png: "image/png",
@@ -130,7 +137,7 @@ export function createRemoteImageFetcher(fetch: typeof globalThis.fetch = global
  * always-on baseline; this is the stronger, DOM-accurate primary pass.
  */
 export function createHtmlSanitizer(): (html: string) => string {
-  const purify = DOMPurify(window);
+  const purify = createDOMPurify(window);
   return (html) =>
     purify.sanitize(html, {
       USE_PROFILES: { html: true }, // no <script>, no SVG/MathML passthrough
