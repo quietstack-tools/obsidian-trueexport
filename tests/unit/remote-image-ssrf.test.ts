@@ -1,44 +1,44 @@
 import { describe, it, expect } from "vitest";
-import { createRemoteImageFetcher } from "../../src/obsidian-adapter";
+import { createRemoteImageFetcher, type RequestUrlLike } from "../../src/obsidian-adapter";
+
+// These tests model the transport (Obsidian's requestUrl) as SURFACING redirects
+// — a 3xx status with a Location header — so the per-hop SSRF guard can be
+// exercised. Note the accepted residual documented in createRemoteImageFetcher:
+// when requestUrl instead FOLLOWS a redirect internally (returning only the final
+// response), the intermediate hop is invisible and cannot be vetoed here. The
+// initial-URL allow-list check and the image/* content-type gate still apply.
 
 const IMG = new TextEncoder().encode("PNG").buffer;
 
-function makeRes(fields: { status?: number; type?: string; headers?: Record<string, string>; body?: ArrayBuffer }): Response {
-  const status = fields.status ?? 200;
-  const headers = fields.headers ?? {};
-  return {
-    status,
-    type: fields.type ?? "basic",
-    ok: status >= 200 && status < 300,
-    headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
-    arrayBuffer: async () => fields.body ?? new ArrayBuffer(0),
-  } as unknown as Response;
+interface Route {
+  status?: number;
+  location?: string;
+  contentType?: string;
 }
 
 /**
- * A fetch that models a redirect graph: `routes[url]` is the response for that
- * URL. A 30x response carries a Location header pointing to the next hop. Also
- * records every URL that was actually requested, so a test can prove a blocked
- * hop was never fetched.
+ * A requestUrl impl that models a redirect graph: `routes[url]` is the response
+ * for that URL. A 3xx response carries a Location header pointing to the next
+ * hop. Records every URL actually requested, so a test can prove a blocked hop
+ * was never fetched.
  */
-function routedFetch(routes: Record<string, { status?: number; location?: string; contentType?: string }>) {
+function routedRequest(routes: Record<string, Route>): { fn: RequestUrlLike; requested: string[] } {
   const requested: string[] = [];
-  const fn = (async (url: string) => {
+  const fn: RequestUrlLike = async ({ url }) => {
     requested.push(url);
     const route = routes[url];
-    if (!route) throw new Error(`unexpected fetch of ${url}`);
-    const status = route.status ?? 200;
+    if (!route) throw new Error(`unexpected request of ${url}`);
     const headers: Record<string, string> = {};
     if (route.location) headers.location = route.location;
     if (route.contentType) headers["content-type"] = route.contentType;
-    return makeRes({ status, headers, body: IMG });
-  }) as unknown as typeof fetch;
+    return { status: route.status ?? 200, headers, arrayBuffer: IMG };
+  };
   return { fn, requested };
 }
 
 describe("remote-image redirect SSRF guard", () => {
-  it("refuses a public host that redirects to an internal address, and never fetches it", async () => {
-    const { fn, requested } = routedFetch({
+  it("refuses a surfaced redirect to an internal address, and never fetches it", async () => {
+    const { fn, requested } = routedRequest({
       "https://cdn.example.com/logo.png": { status: 302, location: "http://169.254.169.254/latest/meta-data/" },
       // The internal target has a route too, so if the guard wrongly followed it
       // the test would see it in `requested` (it must NOT).
@@ -50,8 +50,8 @@ describe("remote-image redirect SSRF guard", () => {
     expect(requested).not.toContain("http://169.254.169.254/latest/meta-data/");
   });
 
-  it("follows a redirect to another public host and returns the image", async () => {
-    const { fn } = routedFetch({
+  it("follows a surfaced redirect to another public host and returns the image", async () => {
+    const { fn } = routedRequest({
       "https://a.example.com/x.png": { status: 301, location: "https://b.example.com/x.png" },
       "https://b.example.com/x.png": { status: 200, contentType: "image/png" },
     });
@@ -62,7 +62,7 @@ describe("remote-image redirect SSRF guard", () => {
 
   it("re-validates a relative-Location redirect against the resolved host", async () => {
     // Relative Location resolves to the SAME (public) host → allowed.
-    const { fn } = routedFetch({
+    const { fn } = routedRequest({
       "https://a.example.com/x.png": { status: 302, location: "/real/x.png" },
       "https://a.example.com/real/x.png": { status: 200, contentType: "image/png" },
     });
@@ -70,19 +70,21 @@ describe("remote-image redirect SSRF guard", () => {
     expect(result).not.toBeNull();
   });
 
-  it("refuses an opaque (un-inspectable) redirect", async () => {
-    const fn = (async () => makeRes({ status: 0, type: "opaqueredirect" })) as unknown as typeof fetch;
+  it("refuses a redirect with no Location header", async () => {
+    const { fn } = routedRequest({
+      "https://a.example.com/x.png": { status: 302 },
+    });
     expect(await createRemoteImageFetcher(fn)("https://a.example.com/x.png")).toBeNull();
   });
 
   it("refuses when the redirect-hop limit is exceeded", async () => {
     // Each hop bounces to the next public host; more than MAX_REDIRECT_HOPS (3).
-    const routes: Record<string, { status?: number; location?: string; contentType?: string }> = {};
+    const routes: Record<string, Route> = {};
     for (let i = 0; i < 6; i++) {
       routes[`https://h${i}.example.com/x.png`] = { status: 302, location: `https://h${i + 1}.example.com/x.png` };
     }
     routes["https://h6.example.com/x.png"] = { status: 200, contentType: "image/png" };
-    const { fn } = routedFetch(routes);
+    const { fn } = routedRequest(routes);
     expect(await createRemoteImageFetcher(fn)("https://h0.example.com/x.png")).toBeNull();
   });
 });

@@ -225,7 +225,8 @@ export class TrueExportSettingTab extends PluginSettingTab {
       .setName("Allow remote images")
       .setDesc(
         "When enabled, the plugin fetches external image URLs while exporting. " +
-          "Only http/https to public hosts are fetched; loopback and private-network addresses are refused.",
+          "Only http/https to public hosts are fetched; loopback and private-network addresses are refused. " +
+          "Note: a public URL that redirects to a private address may still be followed — only enable this for notes you trust.",
       )
       .addToggle((tg) =>
         tg.setValue(s.allowRemoteImages).onChange((v) => {

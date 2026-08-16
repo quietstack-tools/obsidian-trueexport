@@ -4,7 +4,7 @@
 // the canvas-based SVG rasteriser for the DOCX renderer. This is the only file
 // besides src/licence/ that may import from "obsidian" directly (R1/R2).
 
-import { App, Component, MarkdownRenderer, TFile, normalizePath } from "obsidian";
+import { App, Component, MarkdownRenderer, TFile, normalizePath, requestUrl } from "obsidian";
 import * as DOMPurifyModule from "dompurify";
 import type { VaultAdapter } from "./core/adapter";
 import type { RemoteImageFetcher } from "./core/resolver/context";
@@ -80,33 +80,67 @@ const MAX_REDIRECT_HOPS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /**
+ * A structural subset of Obsidian's `requestUrl` — just the request fields we
+ * set and the response fields we read. Injectable so tests never touch the
+ * network; the real `requestUrl` is assignable to it.
+ */
+export interface RemoteRequestResponse {
+  status: number;
+  headers: Record<string, string>;
+  arrayBuffer: ArrayBuffer;
+}
+export type RequestUrlLike = (param: {
+  url: string;
+  method?: string;
+  throw?: boolean;
+}) => Promise<RemoteRequestResponse>;
+
+/**
  * The opt-in remote-image fetch capability (§7.6) — the SECOND documented
  * network call in the codebase, wired only when the user enables remote images.
  *
- * SSRF hardening: `safeRemoteImageUrl` validates the initial target, but that is
- * not enough on its own — a public host can 30x-redirect to an internal address.
- * Obsidian's requestUrl follows redirects blindly with no hook to inspect the
- * chain (its RequestUrlParam has no redirect option), so we drive the request
- * with the platform's fetch using redirect:"manual" and re-validate EVERY hop's
- * target against the same allow-list before following it, up to MAX_REDIRECT_HOPS.
- * Any blocked hop, an un-inspectable (opaque) redirect, or too many hops → null,
- * which the resolver degrades to a placeholder + warning. `fetchImpl` is
- * injectable so tests never touch the network.
+ * Transport: Obsidian's `requestUrl`, which runs in the Electron MAIN process
+ * and is therefore free of CORS restrictions. This is deliberate and load-
+ * bearing: most image hosts do NOT send an `Access-Control-Allow-Origin` header,
+ * so a renderer `fetch` (default mode "cors") is blocked from reading their bytes
+ * and every such image silently degrades to a placeholder. requestUrl reads them.
+ *
+ * SSRF hardening:
+ *   - The INITIAL url is always validated against the allow-list
+ *     (`safeRemoteImageUrl`: http/https only; loopback / private / link-local
+ *     hosts refused) before any request is made.
+ *   - Redirects: if requestUrl SURFACES a redirect (a 3xx status with a Location
+ *     header, i.e. it does not follow the hop itself) we re-validate that hop's
+ *     target against the same allow-list before following it, up to
+ *     MAX_REDIRECT_HOPS. A blocked hop, a missing Location, or too many hops
+ *     → null, which the resolver degrades to a placeholder + warning.
+ *
+ * Accepted residual risk (documented tradeoff): requestUrl exposes no per-hop
+ * hook, and on current Obsidian it follows redirects internally, returning only
+ * the final response with no way to see or veto the intermediate targets and no
+ * final-URL field. So a public host that 30x-redirects to an internal address is
+ * NOT caught when requestUrl follows the redirect itself. The alternative — a
+ * renderer `fetch` with redirect:"manual" that inspects every hop (what a prior
+ * hardening pass shipped) — CANNOT read the majority of hosts at all because of
+ * CORS, which made the whole feature broken for the common case. We accept the
+ * redirect gap to restore a working feature. It is bounded by two facts: only an
+ * `image/*` content-type response is embedded (cloud-metadata / admin JSON
+ * endpoints are rejected at that gate), and the feature is opt-in and off by
+ * default. `requestFn` is injectable so tests never touch the network.
  */
-export function createRemoteImageFetcher(fetch: typeof globalThis.fetch = globalThis.fetch): RemoteImageFetcher {
+export function createRemoteImageFetcher(requestFn: RequestUrlLike = requestUrl): RemoteImageFetcher {
   return async (url) => {
     let current = safeRemoteImageUrl(url);
     if (current === null) return null;
     try {
       for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-        const res = await fetch(current, { method: "GET", redirect: "manual" });
-
-        // A cross-origin redirect the runtime won't let us inspect: refuse
-        // rather than risk following it to an internal host.
-        if (res.type === "opaqueredirect") return null;
+        // throw:false so an HTTP error status resolves (we treat it as a miss)
+        // rather than rejecting; genuine network errors still reject → caught.
+        const res = await requestFn({ url: current, method: "GET", throw: false });
+        const headers = lowerCaseKeys(res.headers);
 
         if (REDIRECT_STATUSES.has(res.status)) {
-          const location = res.headers.get("location");
+          const location = headers["location"];
           if (!location) return null;
           // Resolve relative Locations against the current URL, then re-validate.
           const next = safeRemoteImageUrl(new URL(location, current).toString());
@@ -115,16 +149,23 @@ export function createRemoteImageFetcher(fetch: typeof globalThis.fetch = global
           continue;
         }
 
-        if (!res.ok) return null;
-        const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+        if (res.status < 200 || res.status >= 300) return null;
+        const contentType = (headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
         if (!contentType.startsWith("image/")) return null;
-        return { data: await res.arrayBuffer(), mimeType: contentType };
+        return { data: res.arrayBuffer, mimeType: contentType };
       }
       return null; // exceeded the redirect-hop limit
     } catch {
       return null;
     }
   };
+}
+
+/** Header names are case-insensitive; requestUrl casing varies by platform. */
+function lowerCaseKeys(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers ?? {})) out[k.toLowerCase()] = v;
+  return out;
 }
 
 /**
