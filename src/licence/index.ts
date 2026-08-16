@@ -13,7 +13,7 @@ export type { LicenceResult } from "./polar";
 export interface LicenceSettings {
   licenceKey: string;
   licenceActivated: boolean;
-  deviceCount: number;
+  deviceLimit: number;
 }
 
 export interface LicenceHost {
@@ -39,8 +39,8 @@ export class LicenceManager {
     return this.host.settings.licenceActivated;
   }
 
-  get deviceCount(): number {
-    return this.host.settings.deviceCount;
+  get deviceLimit(): number {
+    return this.host.settings.deviceLimit;
   }
 
   /** Called only from the Activate button. Performs the one network call. */
@@ -55,7 +55,7 @@ export class LicenceManager {
     if (result.status === "valid") {
       this.host.settings.licenceKey = trimmed;
       this.host.settings.licenceActivated = true;
-      this.host.settings.deviceCount = result.deviceCount ?? 0;
+      this.host.settings.deviceLimit = result.deviceLimit ?? 0;
       await this.host.saveSettings();
       return { activated: true, message: "TrueExport Pro activated. Thank you!" };
     }
@@ -84,7 +84,7 @@ export class LicenceManager {
   async deactivate(): Promise<void> {
     this.host.settings.licenceActivated = false;
     this.host.settings.licenceKey = "";
-    this.host.settings.deviceCount = 0;
+    this.host.settings.deviceLimit = 0;
     await this.host.saveSettings();
   }
 }

@@ -23,8 +23,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Test
-        run: npm run test
+      - name: Test (enforces coverage thresholds)
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build

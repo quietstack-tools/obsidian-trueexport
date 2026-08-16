@@ -253,7 +253,7 @@ export class TrueExportSettingTab extends PluginSettingTab {
       .setName("Licence key")
       .setDesc(
         licence.isActivated
-          ? `Pro is active${licence.deviceCount > 0 ? ` · ${licence.deviceCount} device(s)` : ""}.`
+          ? `Pro is active${licence.deviceLimit > 0 ? ` · up to ${licence.deviceLimit} device(s)` : ""}.`
           : "Enter your TrueExport Pro key, then click Activate.",
       )
       .addText((t) =>
