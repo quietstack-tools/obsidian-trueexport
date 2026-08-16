@@ -127,6 +127,10 @@ export class Vault {
     this.created.set(path, data);
     return this.fileFor(path);
   }
+  folders = new Set<string>();
+  async createFolder(path: string): Promise<void> {
+    this.folders.add(path);
+  }
   getMarkdownFiles(): TFile[] {
     return [...this.notes.keys()].filter((p) => p.endsWith(".md")).map((p) => this.fileFor(p));
   }

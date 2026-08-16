@@ -14,6 +14,7 @@ import type { IdmDocument } from "../core/model/document";
 import type { MediaResource } from "../core/model/nodes";
 import type { BlockNode, InlineNode } from "../core/model/nodes";
 import type { ExportOptions, PageSize } from "../core/options";
+import type { WarningCollector } from "../core/warnings";
 import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
 import { renderBlocks, renderFrontmatterTable } from "./blocks";
@@ -25,6 +26,12 @@ export interface DocxRenderOptions {
   deps?: DocxDeps;
   /** Pro removes the free-tier attribution from document properties (§7.1). */
   pro?: boolean;
+  /**
+   * Collector for degradation warnings raised during rendering — currently an
+   * SVG that couldn't be rasterised for Word (§4.9). Optional so pure-render
+   * tests can omit it.
+   */
+  warnings?: WarningCollector;
 }
 
 const FREE_ATTRIBUTION = "(exported with TrueExport — quietstack.tools)";
@@ -43,7 +50,7 @@ export async function renderDocx(
   const deps = render.deps ?? {};
 
   // Rasterise SVGs to PNG (§4.9) before rendering, so rendering stays sync.
-  await rasterizeSvgs(collectResources(doc.blocks, doc.footnotes), deps);
+  await rasterizeSvgs(collectResources(doc.blocks, doc.footnotes), deps, render.warnings, doc.sourcePath);
 
   const ctx: RenderContext = {
     options,
@@ -171,13 +178,34 @@ function collectResources(
   return out;
 }
 
-async function rasterizeSvgs(resources: MediaResource[], deps: DocxDeps): Promise<void> {
+async function rasterizeSvgs(
+  resources: MediaResource[],
+  deps: DocxDeps,
+  warnings: WarningCollector | undefined,
+  sourcePath: string,
+): Promise<void> {
   if (!deps.rasterizeSvg) return;
   for (const res of resources) {
     if (res.kind === "binary" && res.mimeType === "image/svg+xml" && res.data) {
-      const { data } = await deps.rasterizeSvg(res.data, 2);
-      res.data = data;
-      res.mimeType = "image/png";
+      try {
+        const { data } = await deps.rasterizeSvg(res.data, 2);
+        res.data = data;
+        res.mimeType = "image/png";
+      } catch {
+        // One malformed SVG must never abort the whole export (§4.9). Leave the
+        // original SVG bytes in place — the renderer degrades an un-rasterised
+        // SVG to a text placeholder — and record a warning, exactly as failed
+        // media / mermaid / math do elsewhere.
+        warnings?.add({
+          construct: "image",
+          message: `Couldn't convert the SVG "${svgName(res.originalPath)}" for Word; it was shown as a placeholder.`,
+          sourcePath,
+        });
+      }
     }
   }
+}
+
+function svgName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
 }

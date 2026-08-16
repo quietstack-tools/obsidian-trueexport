@@ -235,6 +235,14 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       writeBinary: async (path, data) => {
         await vault.createBinary(path, data);
       },
+      createFolder: async (path) => {
+        try {
+          await vault.createFolder(path);
+        } catch {
+          // Folder already exists (or a race created it) — safe to ignore. A
+          // genuine write failure still surfaces from writeText/writeBinary.
+        }
+      },
     };
   }
 
