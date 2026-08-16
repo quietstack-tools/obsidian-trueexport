@@ -14,6 +14,7 @@ import { resolveDocument } from "./core/resolver";
 import { parseLatex } from "./math/parse";
 import type { RemoteImageFetcher } from "./core/resolver/context";
 import { renderDocx, type DocxDeps } from "./docx";
+import { parseReferenceStyles, type ReferenceStyles } from "./docx/reference-styles";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
 import {
@@ -254,6 +255,79 @@ export async function scanNote(
   return warnings.list();
 }
 
+/**
+ * Cache of parsed reference outcomes, keyed by vault path and guarded by the
+ * file's modified time so a reference isn't re-read/re-parsed on every export.
+ * Caches BOTH successes and known-bad results (null) — so a persistently broken
+ * reference (corrupt/oversized/pathological) isn't repeatedly re-read and
+ * re-parsed either. Persists for the plugin session; bounded by the number of
+ * distinct reference paths (tiny). Exposed for test isolation.
+ */
+const referenceCache = new Map<string, { mtime: number; result: ReferenceStyles | null }>();
+
+/** Clear the reference-style cache (test hygiene). */
+export function clearReferenceStyleCache(): void {
+  referenceCache.clear();
+}
+
+function warnUnreadableReference(warnings: WarningCollector, path: string, sourcePath: string): void {
+  warnings.add({
+    construct: "reference",
+    message: `Could not read styles from the reference document "${path}" — using default styles instead.`,
+    sourcePath,
+  });
+}
+
+/**
+ * Load and parse a Pro user's reference .docx (§5.1). Pro-gated and best-effort:
+ * a missing, unreadable, or unparseable reference never aborts the export — it
+ * degrades to built-in styles with a specific, actionable warning (§7.4).
+ * Outcomes are cached by (path, mtime) to avoid re-reading/re-parsing on every
+ * export, whether the reference parsed successfully or is known-bad.
+ */
+async function loadReferenceStyles(
+  adapter: VaultAdapter,
+  settings: TrueExportSettings,
+  pro: boolean,
+  warnings: WarningCollector,
+  sourcePath: string,
+): Promise<ReferenceStyles | undefined> {
+  const path = settings.referenceDocxPath.trim();
+  if (!pro || path === "") return undefined;
+
+  const mtime = adapter.getModifiedTime ? await adapter.getModifiedTime(path) : null;
+  if (mtime !== null) {
+    const cached = referenceCache.get(path);
+    if (cached && cached.mtime === mtime) {
+      if (cached.result) return cached.result;
+      // Known-bad reference: still warn (the file is still broken), but skip the
+      // re-read + re-parse.
+      warnUnreadableReference(warnings, path, sourcePath);
+      return undefined;
+    }
+  }
+
+  const bytes = await adapter.readBinary(path);
+  if (!bytes) {
+    // A missing file has no mtime to key on, so this isn't cached — but the
+    // check (getModifiedTime + a null read) is cheap.
+    warnings.add({
+      construct: "reference",
+      message: `Reference document "${path}" wasn't found — using default styles instead. Check the path in TrueExport settings.`,
+      sourcePath,
+    });
+    return undefined;
+  }
+
+  const styles = await parseReferenceStyles(bytes);
+  if (mtime !== null) referenceCache.set(path, { mtime, result: styles ?? null });
+  if (!styles) {
+    warnUnreadableReference(warnings, path, sourcePath);
+    return undefined;
+  }
+  return styles;
+}
+
 export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const { adapter, writer, settings, sourcePath, format, template, deps } = params;
   const now = params.now ?? new Date();
@@ -270,7 +344,8 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   let text = "";
   let bytes: ArrayBuffer = new ArrayBuffer(0);
   if (format === "docx") {
-    bytes = await renderDocx(doc, options, { deps, pro, warnings });
+    const referenceStyles = await loadReferenceStyles(adapter, settings, pro, warnings, sourcePath);
+    bytes = await renderDocx(doc, options, { deps, pro, warnings, referenceStyles });
     binary = true;
   } else if (format === "html") {
     text = renderHtml(doc, options, { pro });

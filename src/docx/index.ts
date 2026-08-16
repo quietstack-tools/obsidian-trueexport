@@ -19,8 +19,10 @@ import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
 import { renderBlocks, renderFrontmatterTable } from "./blocks";
 import type { DocxDeps, RenderContext } from "./context";
+import type { ReferenceStyles } from "./reference-styles";
 
 export type { DocxDeps } from "./context";
+export type { ReferenceStyles } from "./reference-styles";
 
 export interface DocxRenderOptions {
   deps?: DocxDeps;
@@ -32,6 +34,11 @@ export interface DocxRenderOptions {
    * tests can omit it.
    */
   warnings?: WarningCollector;
+  /**
+   * Styles extracted from a Pro user's reference .docx (§5.1). When present they
+   * override the built-in style table field-by-field; absent → built-in styles.
+   */
+  referenceStyles?: ReferenceStyles;
 }
 
 const FREE_ATTRIBUTION = "(exported with TrueExport — quietstack.tools)";
@@ -78,7 +85,7 @@ export async function renderDocx(
     title: documentTitle(doc, options),
     description: documentDescription(doc, options, render.pro ?? false),
     keywords: documentKeywords(doc, options),
-    styles: buildStyles(),
+    styles: buildStyles(render.referenceStyles),
     numbering: { config: ctx.numbering.configs },
     footnotes: Object.keys(footnotes).length > 0 ? footnotes : undefined,
     sections: [{ properties: pageProperties(options), children: bodyChildren }],

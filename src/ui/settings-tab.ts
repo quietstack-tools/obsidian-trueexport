@@ -118,13 +118,12 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
-    // Reference DOCX is Pro-gated: enabled only when activated (§8). The gate is
-    // real; the renderer integration is still pending.
+    // Reference DOCX is Pro-gated: enabled only when activated (§8).
     new Setting(containerEl)
       .setName("Reference DOCX (house style)")
       .setDesc(
         this.host.licence.isActivated
-          ? "Path to a .docx whose styles are applied. Rendering integration is pending."
+          ? "Vault path to a .docx whose Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) are applied to Word exports. Leave blank to use built-in styles."
           : "Requires TrueExport Pro.",
       )
       .addText((t) =>

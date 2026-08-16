@@ -23,4 +23,11 @@ export interface VaultAdapter {
 
   /** All Markdown files under a folder, recursively, sorted by path. */
   listNotesInFolder(folderPath: string): Promise<string[]>;
+
+  /**
+   * Last-modified time (ms since epoch) of a file, or null if it doesn't exist.
+   * Optional: used to cache the parsed reference .docx so it isn't re-read and
+   * re-parsed on every export. Absent → callers simply skip the cache.
+   */
+  getModifiedTime?(path: string): Promise<number | null>;
 }

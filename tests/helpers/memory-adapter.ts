@@ -137,6 +137,20 @@ export class MemoryVaultAdapter implements VaultAdapter {
     return this.mimeTypes[extensionOf(path)] ?? "application/octet-stream";
   }
 
+  /**
+   * A stand-in modified time. There's no real clock here, so we derive a stable
+   * value from the content's byte length — enough for the reference-style cache
+   * to distinguish different fixtures at the same path across tests.
+   */
+  async getModifiedTime(path: string): Promise<number | null> {
+    const p = normalize(path);
+    const bin = this.binaries.get(p);
+    if (bin) return bin.byteLength;
+    const note = this.notes.get(p);
+    if (note !== undefined) return note.length;
+    return null;
+  }
+
   async listNotesInFolder(folderPath: string): Promise<string[]> {
     const prefix = normalize(folderPath).replace(/\/$/, "");
     const inFolder = [...this.notes.keys()].filter((p) => {
