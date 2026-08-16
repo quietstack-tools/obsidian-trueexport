@@ -6,14 +6,27 @@ import { MemoryVaultAdapter } from "../helpers/memory-adapter";
 
 class FakeWriter implements VaultWriter {
   files = new Map<string, string | ArrayBuffer>();
+  folders = new Set<string>();
   exists(path: string): boolean {
-    return this.files.has(path);
+    return this.files.has(path) || this.folders.has(path);
   }
   async writeText(path: string, data: string): Promise<void> {
+    this.requireParent(path);
     this.files.set(path, data);
   }
   async writeBinary(path: string, data: ArrayBuffer): Promise<void> {
+    this.requireParent(path);
     this.files.set(path, data);
+  }
+  async createFolder(path: string): Promise<void> {
+    this.folders.add(path);
+  }
+  /** Mirror Obsidian: creating a file inside a non-existent folder throws. */
+  private requireParent(path: string): void {
+    const slash = path.lastIndexOf("/");
+    if (slash !== -1 && !this.folders.has(path.slice(0, slash))) {
+      throw new Error(`Folder does not exist: ${path.slice(0, slash)}`);
+    }
   }
 }
 
@@ -79,6 +92,24 @@ describe("exportNote", () => {
       template: "default",
     });
     expect(result.outputPath).toBe("folder/Note (1).docx");
+  });
+
+  it("creates a missing custom output folder instead of failing (§7.4)", async () => {
+    const writer = new FakeWriter();
+    // "Exports/Word" does not exist yet; without folder creation the write
+    // would throw (FakeWriter.requireParent mirrors Obsidian's vault.create).
+    const result = await exportNote({
+      adapter: adapter(),
+      writer,
+      settings: settings({ outputLocation: "custom", customOutputFolder: "Exports/Word" }),
+      sourcePath: "folder/Note.md",
+      format: "html",
+      template: "default",
+    });
+    expect(result.outputPath).toBe("Exports/Word/Note.html");
+    expect(writer.folders.has("Exports")).toBe(true);
+    expect(writer.folders.has("Exports/Word")).toBe(true);
+    expect(writer.files.has(result.outputPath)).toBe(true);
   });
 
   it("honours output location and filename pattern", async () => {

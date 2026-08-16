@@ -27,6 +27,13 @@ export interface VaultWriter {
   exists(path: string): boolean;
   writeText(path: string, data: string): Promise<void>;
   writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+  /**
+   * Create a folder, treating "already exists" as success. Optional so the
+   * write seam stays minimal; when present, exportNote creates any missing
+   * parent folders of the output path before writing (§7.4), so a custom
+   * destination that doesn't exist yet doesn't fail the export.
+   */
+  createFolder?(path: string): Promise<void>;
 }
 
 /**
@@ -263,7 +270,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   let text = "";
   let bytes: ArrayBuffer = new ArrayBuffer(0);
   if (format === "docx") {
-    bytes = await renderDocx(doc, options, { deps, pro });
+    bytes = await renderDocx(doc, options, { deps, pro, warnings });
     binary = true;
   } else if (format === "html") {
     text = renderHtml(doc, options, { pro });
@@ -296,10 +303,27 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   });
   const outputPath = uniqueOutputPath(writer, outputFolder(settings, sourcePath), base, FORMAT_EXTENSIONS[format]);
 
+  await ensureParentFolders(writer, outputPath);
   if (binary) await writer.writeBinary(outputPath, bytes);
   else await writer.writeText(outputPath, text);
 
   return { outputPath, warnings: warnings.list() };
+}
+
+/**
+ * Create any missing parent folders of `outputPath` (§7.4). A custom output
+ * folder that doesn't exist yet must not fail the export with a generic error —
+ * it's a fixable situation, so we create the folder chain first.
+ */
+async function ensureParentFolders(writer: VaultWriter, outputPath: string): Promise<void> {
+  if (!writer.createFolder) return;
+  const segments = normalize(outputPath).split("/");
+  segments.pop(); // drop the filename
+  let dir = "";
+  for (const seg of segments) {
+    dir = dir ? `${dir}/${seg}` : seg;
+    if (!writer.exists(dir)) await writer.createFolder(dir);
+  }
 }
 
 // ---- Batch folder export (Pro; §6.1, §7.3) ----
