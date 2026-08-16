@@ -223,7 +223,10 @@ export class TrueExportSettingTab extends PluginSettingTab {
     );
     new Setting(containerEl)
       .setName("Allow remote images")
-      .setDesc("When enabled, the plugin fetches external image URLs while exporting.")
+      .setDesc(
+        "When enabled, the plugin fetches external image URLs while exporting. " +
+          "Only http/https to public hosts are fetched; loopback and private-network addresses are refused.",
+      )
       .addToggle((tg) =>
         tg.setValue(s.allowRemoteImages).onChange((v) => {
           s.allowRemoteImages = v;

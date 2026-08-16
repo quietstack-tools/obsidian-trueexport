@@ -23,8 +23,10 @@ import type {
 } from "../core/model/nodes";
 import type { ExportOptions } from "../core/options";
 import { parseLatex } from "../math/parse";
+import { safeExternalUrl } from "../core/util/url";
 import { mathmlDocument } from "./math";
 import { buildCss } from "./css";
+import { sanitizeRawHtml } from "./sanitize";
 
 export interface HtmlRenderOptions {
   /** Pro removes the free-tier attribution <meta> (§7.1). */
@@ -34,6 +36,17 @@ export interface HtmlRenderOptions {
 }
 
 const ATTRIBUTION = "TrueExport — quietstack.tools";
+
+// Self-contained output: images are inlined as data: URIs and CSS is inlined,
+// so nothing legitimate needs script or a network fetch.
+const CSP = [
+  "default-src 'none'",
+  "img-src data:",
+  "style-src 'unsafe-inline'",
+  "font-src data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
 
 export function renderHtml(doc: IdmDocument, options: ExportOptions, render: HtmlRenderOptions = {}): string {
   const lang = render.lang ?? "en";
@@ -48,6 +61,10 @@ export function renderHtml(doc: IdmDocument, options: ExportOptions, render: Htm
 
   const head = [
     '<meta charset="utf-8">',
+    // Strict CSP: the document is fully self-contained, so we can forbid all
+    // scripts and every external load. This enforces the "no network requests"
+    // guarantee and neutralises any script that slips through sanitisation.
+    `<meta http-equiv="Content-Security-Policy" content="${CSP}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escapeHtml(doc.title)}</title>`,
     ...metaTags(doc, options),
@@ -136,8 +153,10 @@ function renderBlock(block: BlockNode): string {
     case "imageBlock":
       return renderImageBlock(block);
     case "htmlBlock":
-      // HTML passes through to HTML (the user's own note content).
-      return block.raw;
+      // The user's own note HTML passes through, but sanitised: an export is
+      // opened outside Obsidian's sandbox, so raw <script>/onerror/javascript:
+      // must not survive. The document CSP is the primary backstop.
+      return sanitizeRawHtml(block.raw);
     case "mathBlock":
       return renderMath(block.latex, true);
     case "unsupported":
@@ -264,7 +283,11 @@ function renderLink(node: LinkNode): string {
   const inner = renderInline(node.children);
   const t = node.target;
   if (t.kind === "external") {
-    return `<a href="${escapeAttr(t.url)}" rel="noopener noreferrer">${inner}</a>`;
+    // Drop the href for unsafe schemes (javascript:, data:, …): render the link
+    // text as a plain <span> rather than an actionable, script-running link.
+    const safe = safeExternalUrl(t.url);
+    if (safe === null) return `<span class="unsafe-link">${inner}</span>`;
+    return `<a href="${escapeAttr(safe)}" rel="noopener noreferrer">${inner}</a>`;
   }
   if (t.kind === "anchor") {
     return `<a href="#${escapeAttr(sanitizeAnchor(t.id))}">${inner}</a>`;

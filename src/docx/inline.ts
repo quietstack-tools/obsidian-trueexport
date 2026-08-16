@@ -22,6 +22,7 @@ import type {
   LinkNode,
 } from "../core/model/nodes";
 import { slugify } from "../core/util/slug";
+import { safeExternalUrl } from "../core/util/url";
 import { RUN_LANGUAGE } from "./styles";
 import { imageType, displaySize } from "./image";
 import type { RenderContext } from "./context";
@@ -115,7 +116,7 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
         out.push(new TextRun({ text: n.value, style: "Code", language: RUN_LANGUAGE }));
         break;
       case "link":
-        out.push(renderLink(n, ctx, fmt));
+        out.push(...renderLink(n, ctx, fmt));
         break;
       case "inlineImage": {
         const built = buildImage(n, ctx);
@@ -141,19 +142,24 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
   return out;
 }
 
-function renderLink(node: LinkNode, ctx: RenderContext, fmt: Fmt): ExternalHyperlink | InternalHyperlink {
-  const runs = renderInline(node.children, ctx, { ...fmt, hyperlink: true });
+function renderLink(node: LinkNode, ctx: RenderContext, fmt: Fmt): InlineRun[] {
   const t = node.target;
   if (t.kind === "external") {
-    return new ExternalHyperlink({ link: t.url, children: runs });
+    const safe = safeExternalUrl(t.url);
+    // Unsafe scheme (javascript:, file:, …): Word would honour the hyperlink, so
+    // strip it and keep the visible text as plain (non-hyperlink) runs.
+    if (safe === null) return renderInline(node.children, ctx, fmt);
+    const runs = renderInline(node.children, ctx, { ...fmt, hyperlink: true });
+    return [new ExternalHyperlink({ link: safe, children: runs })];
   }
+  const runs = renderInline(node.children, ctx, { ...fmt, hyperlink: true });
   if (t.kind === "anchor") {
-    return new InternalHyperlink({ anchor: sanitizeAnchor(t.id), children: runs });
+    return [new InternalHyperlink({ anchor: sanitizeAnchor(t.id), children: runs })];
   }
   const anchor = t.blockId
     ? t.blockId
     : t.heading
       ? slugify(t.heading)
       : slugify(basename(t.notePath));
-  return new InternalHyperlink({ anchor: sanitizeAnchor(anchor), children: runs });
+  return [new InternalHyperlink({ anchor: sanitizeAnchor(anchor), children: runs })];
 }

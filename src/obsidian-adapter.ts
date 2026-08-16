@@ -7,6 +7,7 @@
 import { App, Component, MarkdownRenderer, TFile, normalizePath, requestUrl } from "obsidian";
 import type { VaultAdapter } from "./core/adapter";
 import type { RemoteImageFetcher } from "./core/resolver/context";
+import { safeRemoteImageUrl } from "./core/util/url";
 
 const MIME_TYPES: Record<string, string> = {
   png: "image/png",
@@ -76,8 +77,13 @@ export class ObsidianVaultAdapter implements VaultAdapter {
  */
 export function createRemoteImageFetcher(): RemoteImageFetcher {
   return async (url) => {
+    // SSRF guard: only http/https to public hosts. Refuses loopback / private /
+    // link-local targets (e.g. cloud metadata 169.254.169.254, localhost admin
+    // panels). null → treat as an un-fetchable image (placeholder + warning).
+    const safe = safeRemoteImageUrl(url);
+    if (safe === null) return null;
     try {
-      const res = await requestUrl({ url, method: "GET", throw: false });
+      const res = await requestUrl({ url: safe, method: "GET", throw: false });
       if (res.status < 200 || res.status >= 300) return null;
       const contentType = (res.headers?.["content-type"] ?? res.headers?.["Content-Type"] ?? "")
         .split(";")[0]

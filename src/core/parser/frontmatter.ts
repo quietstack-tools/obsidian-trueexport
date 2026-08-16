@@ -94,6 +94,17 @@ export function parseYaml(rawLines: string[]): {
       const rest = m[2];
       state.idx++;
 
+      // Never let a note's frontmatter key mutate an object prototype.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") {
+        // Consume the value line(s) so parsing stays aligned, then drop the key.
+        if (rest === "" && lines[state.idx] && indentOf(lines[state.idx]) > indent) {
+          const nextTrim = lines[state.idx].trim();
+          if (nextTrim === "-" || nextTrim.startsWith("- ")) parseSeq(indentOf(lines[state.idx]));
+          else parseMap(indentOf(lines[state.idx]));
+        }
+        continue;
+      }
+
       if (rest === "") {
         const next = lines[state.idx];
         if (next && indentOf(next) > indent) {

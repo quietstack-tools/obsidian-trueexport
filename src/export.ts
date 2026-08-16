@@ -62,6 +62,17 @@ function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\.\//, "");
 }
 
+/**
+ * Confine a user-supplied output folder to the vault: drop leading slashes and
+ * any ".." segments so an export can never be aimed above the vault root (§7.4).
+ */
+function confineToVault(path: string): string {
+  return normalize(path)
+    .split("/")
+    .filter((seg) => seg !== "" && seg !== "." && seg !== "..")
+    .join("/");
+}
+
 function dirname(path: string): string {
   const slash = normalize(path).lastIndexOf("/");
   return slash === -1 ? "" : path.slice(0, slash);
@@ -327,7 +338,7 @@ function outputFolder(settings: TrueExportSettings, sourcePath: string): string 
     case "vault-root":
       return "";
     case "custom":
-      return normalize(settings.customOutputFolder);
+      return confineToVault(settings.customOutputFolder);
     default:
       return dirname(sourcePath);
   }
