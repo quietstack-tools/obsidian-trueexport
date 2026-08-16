@@ -1,8 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import * as JSZip from "jszip";
 import { exportNote, exportFolder, scanNote, type VaultWriter } from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
 import { MemoryVaultAdapter } from "../helpers/memory-adapter";
+
+function toArrayBuffer(buf: Buffer): ArrayBuffer {
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+const REFERENCE_DOCX = toArrayBuffer(readFileSync("tests/fixtures/reference-styles.docx"));
+async function stylesXmlOf(bytes: string | ArrayBuffer | undefined): Promise<string> {
+  const zip = await JSZip.loadAsync(new Uint8Array(bytes as ArrayBuffer));
+  return zip.file("word/styles.xml")!.async("string");
+}
 
 class FakeWriter implements VaultWriter {
   files = new Map<string, string | ArrayBuffer>();
@@ -302,5 +312,78 @@ describe("exportFolder (batch)", () => {
       [2, 3],
       [3, 3],
     ]);
+  });
+});
+
+describe("reference DOCX (Pro; §5.1)", () => {
+  const refAdapter = (binaries?: Record<string, ArrayBuffer>) =>
+    new MemoryVaultAdapter({ notes: { "folder/Note.md": "# Title\n\nBody text." }, binaries });
+
+  it("applies the reference styles for a Pro user with a valid reference doc", async () => {
+    const writer = new FakeWriter();
+    const result = await exportNote({
+      adapter: refAdapter({ "templates/house.docx": REFERENCE_DOCX }),
+      writer,
+      settings: settings({ licenceActivated: true, referenceDocxPath: "templates/house.docx" }),
+      sourcePath: "folder/Note.md",
+      format: "docx",
+      template: "default",
+    });
+    const styles = await stylesXmlOf(writer.files.get(result.outputPath));
+    expect(styles).toContain("Georgia"); // reference Normal font
+    expect(styles).not.toContain("Calibri"); // built-in font replaced
+    expect(result.warnings.some((w) => w.construct === "reference")).toBe(false);
+  });
+
+  it("ignores the reference for a free-tier user (built-in styles, no read attempted)", async () => {
+    const adapter = refAdapter({ "templates/house.docx": REFERENCE_DOCX });
+    const spy = vi.spyOn(adapter, "readBinary");
+    const writer = new FakeWriter();
+    const result = await exportNote({
+      adapter,
+      writer,
+      settings: settings({ licenceActivated: false, referenceDocxPath: "templates/house.docx" }),
+      sourcePath: "folder/Note.md",
+      format: "docx",
+      template: "default",
+    });
+    const styles = await stylesXmlOf(writer.files.get(result.outputPath));
+    expect(styles).toContain("Calibri"); // built-in
+    expect(styles).not.toContain("Georgia");
+    expect(spy).not.toHaveBeenCalledWith("templates/house.docx");
+  });
+
+  it("degrades to built-in styles + a warning when the reference file is missing", async () => {
+    const writer = new FakeWriter();
+    const result = await exportNote({
+      adapter: refAdapter(), // no binaries → path not found
+      writer,
+      settings: settings({ licenceActivated: true, referenceDocxPath: "templates/missing.docx" }),
+      sourcePath: "folder/Note.md",
+      format: "docx",
+      template: "default",
+    });
+    const styles = await stylesXmlOf(writer.files.get(result.outputPath));
+    expect(styles).toContain("Calibri"); // fell back to built-in
+    const warning = result.warnings.find((w) => w.construct === "reference");
+    expect(warning?.message).toMatch(/wasn't found.*using default styles instead/);
+  });
+
+  it("degrades to built-in styles + a warning when the reference file is corrupted", async () => {
+    const garbage = new TextEncoder().encode("this is not a docx").buffer;
+    const writer = new FakeWriter();
+    const result = await exportNote({
+      adapter: refAdapter({ "templates/house.docx": garbage }),
+      writer,
+      settings: settings({ licenceActivated: true, referenceDocxPath: "templates/house.docx" }),
+      sourcePath: "folder/Note.md",
+      format: "docx",
+      template: "default",
+    });
+    const styles = await stylesXmlOf(writer.files.get(result.outputPath));
+    expect(styles).toContain("Calibri");
+    expect(
+      result.warnings.some((w) => w.construct === "reference" && /Could not read styles/.test(w.message)),
+    ).toBe(true);
   });
 });

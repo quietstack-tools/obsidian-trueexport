@@ -14,6 +14,7 @@ import { resolveDocument } from "./core/resolver";
 import { parseLatex } from "./math/parse";
 import type { RemoteImageFetcher } from "./core/resolver/context";
 import { renderDocx, type DocxDeps } from "./docx";
+import { parseReferenceStyles, type ReferenceStyles } from "./docx/reference-styles";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
 import {
@@ -254,6 +255,43 @@ export async function scanNote(
   return warnings.list();
 }
 
+/**
+ * Load and parse a Pro user's reference .docx (§5.1). Pro-gated and best-effort:
+ * a missing, unreadable, or unparseable reference never aborts the export — it
+ * degrades to built-in styles with a specific, actionable warning (§7.4).
+ */
+async function loadReferenceStyles(
+  adapter: VaultAdapter,
+  settings: TrueExportSettings,
+  pro: boolean,
+  warnings: WarningCollector,
+  sourcePath: string,
+): Promise<ReferenceStyles | undefined> {
+  const path = settings.referenceDocxPath.trim();
+  if (!pro || path === "") return undefined;
+
+  const bytes = await adapter.readBinary(path);
+  if (!bytes) {
+    warnings.add({
+      construct: "reference",
+      message: `Reference document "${path}" wasn't found — using default styles instead. Check the path in TrueExport settings.`,
+      sourcePath,
+    });
+    return undefined;
+  }
+
+  const styles = await parseReferenceStyles(bytes);
+  if (!styles) {
+    warnings.add({
+      construct: "reference",
+      message: `Could not read styles from the reference document "${path}" — using default styles instead.`,
+      sourcePath,
+    });
+    return undefined;
+  }
+  return styles;
+}
+
 export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const { adapter, writer, settings, sourcePath, format, template, deps } = params;
   const now = params.now ?? new Date();
@@ -270,7 +308,8 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   let text = "";
   let bytes: ArrayBuffer = new ArrayBuffer(0);
   if (format === "docx") {
-    bytes = await renderDocx(doc, options, { deps, pro, warnings });
+    const referenceStyles = await loadReferenceStyles(adapter, settings, pro, warnings, sourcePath);
+    bytes = await renderDocx(doc, options, { deps, pro, warnings, referenceStyles });
     binary = true;
   } else if (format === "html") {
     text = renderHtml(doc, options, { pro });

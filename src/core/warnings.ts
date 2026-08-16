@@ -18,6 +18,7 @@ export type WarningConstruct =
   | "tasks"
   | "templater"
   | "html"
+  | "reference"
   | "frontmatter";
 
 export interface ExportWarning {
