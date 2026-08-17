@@ -202,16 +202,16 @@ function renderMarkdown(md) {
 
 // ---- page template --------------------------------------------------------
 
-function provenance(sourceName) {
-  return (
-    '<div class="provenance">The canonical source of this document is ' +
-    `<code>${escapeHtml(sourceName)}</code> in the TrueExport repository. This ` +
-    "page is generated from that file, not maintained by hand — if the two ever " +
-    "differ, the repository file governs.</div>"
-  );
-}
+// The site footer. This build script adds it to EVERY page, and places it
+// OUTSIDE <main> (the rendered document content), so on the generated legal and
+// policy pages it can never be mistaken for part of the document text. Defined
+// once here so every page carries exactly one, identical footer.
+const FOOTER = `  <footer>
+    <p>Kesavan Paripurapavan · ABN 94 867 243 153</p>
+    <p class="footer-links"><a href="https://github.com/quietstack-tools/obsidian-trueexport/blob/main/LICENSE">Licence</a> · <a href="/trueexport/commitments">Commitments</a> · <a href="/trueexport/terms">Terms</a> · <a href="/privacy">Privacy</a></p>
+  </footer>`;
 
-function page(title, sourceName, bodyHtml) {
+function shell(title, mainHtml) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -222,25 +222,60 @@ function page(title, sourceName, bodyHtml) {
 </head>
 <body>
   <main>
-${provenance(sourceName)}
-${bodyHtml}
+${mainHtml}
   </main>
-  <footer>
-    Kesavan Paripurapavan · ABN 94 867 243 153
-  </footer>
+${FOOTER}
 </body>
 </html>
 `;
 }
 
+function provenance(sourceName) {
+  return (
+    '<div class="provenance">The canonical source of this document is ' +
+    `<code>${escapeHtml(sourceName)}</code> in the TrueExport repository. This ` +
+    "page is generated from that file, not maintained by hand — if the two ever " +
+    "differ, the repository file governs.</div>"
+  );
+}
+
+// A generated document page (commitments / terms / privacy): provenance note
+// then the rendered markdown, all inside <main>.
+function documentPage(title, sourceName, bodyHtml) {
+  return shell(title, `${provenance(sourceName)}\n${bodyHtml}`);
+}
+
+// The home page. Not from markdown: a short intro plus routes into the three
+// published documents. The commitments page is the main trust argument and must
+// be reachable from the body here, not only via the footer.
+function homePage() {
+  const body = `<h1>QuietStack</h1>
+    <p class="home-lede">
+      TrueExport is an Obsidian plugin that exports your notes to Word, PDF and
+      HTML that open correctly everywhere — wikilinks, embeds, callouts, tables
+      and footnotes intact.
+    </p>
+    <div class="home-links">
+      <p><a href="/trueexport/commitments">TrueExport Free Feature Commitment</a> — what stays free, permanently.</p>
+      <p><a href="/trueexport/terms">TrueExport Pro — Terms of Purchase and Use</a></p>
+      <p><a href="/privacy">Privacy Policy</a></p>
+    </div>`;
+  return shell("QuietStack", body);
+}
+
 // ---- build ----------------------------------------------------------------
 
+// The three document pages, each derived from its markdown source of truth.
 for (const p of PAGES) {
   const src = join(repoRoot, p.source);
   const md = readFileSync(src, "utf-8");
-  const html = page(p.title, p.source, renderMarkdown(md));
   const outFile = join(publicDir, p.out);
   mkdirSync(dirname(outFile), { recursive: true });
-  writeFileSync(outFile, html, "utf-8");
+  writeFileSync(outFile, documentPage(p.title, p.source, renderMarkdown(md)), "utf-8");
   console.log(`Generated ${outFile} from ${p.source} (${md.length} source bytes).`);
 }
+
+// The home page.
+const indexFile = join(publicDir, "index.html");
+writeFileSync(indexFile, homePage(), "utf-8");
+console.log(`Generated ${indexFile} (home page).`);

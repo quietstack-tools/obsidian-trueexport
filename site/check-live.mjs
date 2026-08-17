@@ -35,6 +35,10 @@ function fail(msg, code) {
 // addresses included. (Cloudflare's Email Address Obfuscation is disabled on the
 // zone so the served HTML is faithful and needs no tolerance here.)
 function visibleText(html) {
+  // The site footer is added to every page OUTSIDE <main>. Exclude it explicitly
+  // so it can never enter the comparison. This is a targeted exclusion of the
+  // footer only — it does not loosen the strict comparison of the document body.
+  html = html.replace(/<footer[\s\S]*?<\/footer>/gi, " ");
   const m = html.match(/<main[\s\S]*?>([\s\S]*?)<\/main>/i);
   const body = m ? m[1] : html;
   return body

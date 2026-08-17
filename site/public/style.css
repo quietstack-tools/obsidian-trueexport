@@ -88,6 +88,10 @@ footer {
   color: var(--muted);
   font-size: 0.9rem;
 }
+footer p { margin: 0.3rem 0; }
+.footer-links a { color: var(--accent); text-decoration: none; }
+.footer-links a:hover { text-decoration: underline; }
 
 .home-lede { font-size: 1.1rem; color: var(--muted); }
 .home-links { margin-top: 1.5rem; }
+.home-links p { margin: 0.5rem 0; }
