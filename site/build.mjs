@@ -263,6 +263,73 @@ function homePage() {
   return shell("QuietStack", body);
 }
 
+// The four Pro features, extracted VERBATIM from PRO_TERMS.md clause 3 so the
+// landing page's Pro list is derived from the binding terms and can never
+// contradict them. Throws if clause 3 can't be found — better a failed build
+// than a marketing page that drifts from the terms.
+function extractProFeatures(proTermsMd) {
+  const lines = proTermsMd.split("\n");
+  const start = lines.findIndex((l) => /^#{1,6}\s+3\.\s+Pro Features\s*$/.test(l));
+  if (start === -1) throw new Error("PRO_TERMS.md: could not locate clause 3 (Pro Features)");
+  const items = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^#{1,6}\s/.test(lines[i])) break; // next heading ends the clause
+    const m = lines[i].match(/^-\s+(.*)$/);
+    if (m) items.push(m[1].trim());
+  }
+  if (items.length === 0) throw new Error("PRO_TERMS.md clause 3: no Pro features found");
+  return items;
+}
+
+// The product landing page at /trueexport (the plugin's PRO_URL target). It
+// SUMMARISES and LINKS rather than restating the free/Pro split as authoritative:
+// the free tier defers to Schedule 1 in COMMITMENTS.md, and the Pro list is taken
+// from PRO_TERMS.md clause 3. It is not itself a source of what is free.
+function landingPage(proFeatures) {
+  const proList = proFeatures.map((f) => `        <li>${renderInline(f)}</li>`).join("\n");
+  const body = `<h1>TrueExport</h1>
+    <p class="home-lede">
+      TrueExport is an Obsidian plugin that exports your notes to Word (DOCX),
+      PDF and HTML that open correctly everywhere — wikilinks, embeds, callouts,
+      tables and footnotes intact. No Pandoc, no LaTeX, no command line.
+    </p>
+
+    <h2>Free, permanently</h2>
+    <p>
+      Everything you need for correct output is free, and always will be —
+      DOCX, HTML and PDF export, all four built-in templates, export warnings and
+      diagnostics, and fully offline operation. Correctness of output is never
+      behind a paywall.
+    </p>
+    <p>
+      This is a binding, perpetual commitment, not a marketing line. The full and
+      authoritative list is the
+      <a href="/trueexport/commitments">TrueExport Free Feature Commitment</a>
+      (Schedule 1) — that document, not this page, governs what is free.
+    </p>
+
+    <h2>TrueExport Pro — one-time USD $25</h2>
+    <p>A one-time purchase (not a subscription) unlocks:</p>
+    <ul>
+${proList}
+    </ul>
+    <p>
+      Buying Pro is never necessary to get correct output. The full terms are in
+      the <a href="/trueexport/terms">Pro Terms of Purchase</a>.
+    </p>
+    <p><a href="https://polar.sh/quietstack">Get TrueExport Pro on Polar</a></p>
+
+    <h2>More</h2>
+    <ul>
+      <li><a href="/trueexport/commitments">Free Feature Commitment</a></li>
+      <li><a href="/trueexport/terms">Pro Terms of Purchase</a></li>
+      <li><a href="/privacy">Privacy Policy</a></li>
+      <li><a href="https://github.com/quietstack-tools/obsidian-trueexport/blob/main/LICENSE">Licence — PolyForm Shield 1.0.0</a></li>
+      <li><a href="https://github.com/quietstack-tools/obsidian-trueexport">Source on GitHub</a></li>
+    </ul>`;
+  return shell("TrueExport — Obsidian export to Word, PDF and HTML", body);
+}
+
 // ---- build ----------------------------------------------------------------
 
 // The three document pages, each derived from its markdown source of truth.
@@ -279,3 +346,10 @@ for (const p of PAGES) {
 const indexFile = join(publicDir, "index.html");
 writeFileSync(indexFile, homePage(), "utf-8");
 console.log(`Generated ${indexFile} (home page).`);
+
+// The product landing page at /trueexport (flat file → bare 200 at the no-slash
+// URL). Its Pro list is derived from PRO_TERMS.md clause 3.
+const proTermsMd = readFileSync(join(repoRoot, "PRO_TERMS.md"), "utf-8");
+const landingFile = join(publicDir, "trueexport.html");
+writeFileSync(landingFile, landingPage(extractProFeatures(proTermsMd)), "utf-8");
+console.log(`Generated ${landingFile} (product landing page).`);
