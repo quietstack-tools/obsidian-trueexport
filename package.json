@@ -13,11 +13,13 @@
     "lint:fix": "eslint src main.ts --fix",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "check": "npm run lint && npm run test && npm run build",
+    "build:site": "node site/build.mjs",
+    "deploy:site": "node site/build.mjs && env -u CLOUDFLARE_API_TOKEN npx --yes wrangler pages deploy site/public --project-name=quietstack-site",
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
   "keywords": [],
-  "author": "QuietStack",
-  "license": "UNLICENSED",
+  "author": "Kesavan Paripurapavan",
+  "license": "PolyForm-Shield-1.0.0",
   "dependencies": {
     "docx": "^9.7.1",
     "dompurify": "^3.4.13",

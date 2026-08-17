@@ -5,6 +5,20 @@ node_modules/
 main.js
 *.js.map
 
+# Generated static-site output (site/build.mjs renders these from the source
+# markdown). Source is committed (build.mjs, pages.mjs, check-live.mjs,
+# index.html, style.css); the derived pages are not.
+site/public/trueexport/
+site/public/privacy.html
+
+# docs/legal/ holds internal working documents (candid analysis of our own
+# legal position). The repo is PUBLIC — ignore everything here by default and
+# publish only the licence-check tool and its short public README. Any file
+# added here later is ignored unless explicitly allow-listed below.
+docs/legal/*
+!docs/legal/README.md
+!docs/legal/verify-license.py
+
 # Test output
 coverage/
 tests/output/
@@ -18,6 +32,12 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Internal technical spec — not published. Its §7.1 states the free/Pro split,
+# which COMMITMENTS.md Schedule 1 already states as a binding commitment;
+# Schedule 1 must be the single public statement of what is free (no competing
+# "which version governs" copy).
+TECH_SPEC.md
 
 # Obsidian
 data.json
