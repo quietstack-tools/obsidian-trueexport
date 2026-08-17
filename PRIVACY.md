@@ -92,5 +92,5 @@ CHANGELOG.
 
 Kesavan Paripurapavan
 ABN 94 867 243 153
-120 River Road, Greenwich NSW 2065, Australia
+New South Wales, Australia
 support@quietstack.tools

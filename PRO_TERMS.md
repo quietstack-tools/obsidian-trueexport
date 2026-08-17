@@ -35,7 +35,7 @@ business name and it is not a separate legal entity. Your contract is with me
 personally.
 
 Contact: **support@quietstack.tools**
-Business address: **120 River Road, Greenwich NSW 2065, Australia**
+Location: **New South Wales, Australia**
 
 Payment is processed by **Polar Software Inc.** ("Polar"), acting as
 **merchant of record**. This means Polar is the seller for the purposes of
