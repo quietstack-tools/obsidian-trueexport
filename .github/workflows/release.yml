@@ -18,6 +18,34 @@ jobs:
           node-version: "22"
 
       - run: npm ci
+
+      # Licence compliance gate (docs/legal/README.md §3.4). Mirrors ci.yml.
+      # Both this and verify-license.py must pass before a release is cut.
+      - name: Licence allowlist (production deps)
+        run: >
+          npx --yes license-checker --production
+          --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;Zlib'
+          --excludePackages 'obsidian-trueexport@0.1.0;jszip@3.10.1;dompurify@3.4.13;pako@1.0.11'
+
+      # Verify LICENSE is unmodified PolyForm Shield 1.0.0. Release uses the
+      # --online form: it passes the offline pin AND re-verifies that pin against
+      # polyformproject.org, so a release is never cut on a stale pin. Non-zero
+      # (drift=1, could-not-check=2) blocks the release.
+      - name: Verify LICENSE (online, re-verifies pin upstream)
+        run: python3 docs/legal/verify-license.py --license LICENSE --online
+
+      # Verify every LIVE published page still matches its source document
+      # (docs/legal/README.md §6): the commitment, the Pro terms, and the privacy
+      # policy. site/public/ is gitignored and deploys are manual, so a repo copy
+      # and its hosted copy can otherwise diverge with nothing failing. This
+      # rebuilds each page from its source, fetches quietstack.tools, and compares
+      # visible text strictly. It is network-dependent (it fetches the live site),
+      # so it lives here in release.yml rather than ci.yml — the same reason the
+      # --online LICENSE check is here and the offline pin is in ci.yml. Non-zero
+      # (drift=1, could-not-check=2) blocks the release.
+      - name: Verify live published pages match their sources
+        run: node site/check-live.mjs
+
       - run: npm run test
       - run: npm run build
 

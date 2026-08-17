@@ -1,0 +1,93 @@
+/* quietstack.tools — minimal static styling. No framework, no build tooling. */
+
+:root {
+  --ink: #1a1a1a;
+  --muted: #555;
+  --rule: #e2e2e2;
+  --accent: #086DDD;
+  --bg: #ffffff;
+  --code-bg: #f5f5f5;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.6;
+  margin: 0;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+main {
+  max-width: 46rem;
+  margin: 0 auto;
+}
+
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 1rem; }
+h2 { font-size: 1.35rem; margin: 2.2rem 0 0.75rem; padding-top: 0.4rem; }
+h3 { font-size: 1.1rem; margin: 1.6rem 0 0.5rem; }
+
+p { margin: 0.75rem 0; }
+
+a { color: var(--accent); }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 2rem 0;
+}
+
+ul, ol { margin: 0.75rem 0; padding-left: 1.6rem; }
+li { margin: 0.35rem 0; }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.95rem;
+}
+th, td {
+  border: 1px solid var(--rule);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+th { background: var(--code-bg); }
+
+/* The "generated from source" provenance banner on the commitments page. */
+.provenance {
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--accent);
+  background: #f7fafd;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  font-size: 0.92rem;
+  color: var(--muted);
+  margin-bottom: 2rem;
+}
+.provenance code { background: #eef4fb; }
+
+footer {
+  max-width: 46rem;
+  margin: 3rem auto 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.home-lede { font-size: 1.1rem; color: var(--muted); }
+.home-links { margin-top: 1.5rem; }

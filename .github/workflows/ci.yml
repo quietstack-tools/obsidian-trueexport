@@ -20,6 +20,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Licence compliance (docs/legal/README.md §3.4). Fails the build if a
+      # production dependency uses a licence outside the permissive allowlist —
+      # a copyleft dep (GPL/AGPL/LGPL/MPL-only) would force the whole plugin to
+      # copyleft and destroy the noncompete model.
+      #
+      # excludePackages carries the deliberate dual-licence elections and our
+      # own package. Each is pinned to a version so a dependency bump trips this
+      # gate and forces a re-review (and a THIRD_PARTY_NOTICES.md regen):
+      #   jszip     (MIT OR GPL-3.0-or-later)  -> MIT elected
+      #   dompurify (MPL-2.0 OR Apache-2.0)    -> Apache-2.0 elected
+      #   pako      (MIT AND Zlib)             -> both permissive
+      #   obsidian-trueexport                  -> this package (PolyForm Shield)
+      - name: Licence allowlist (production deps)
+        run: >
+          npx --yes license-checker --production
+          --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;BlueOak-1.0.0;Zlib'
+          --excludePackages 'obsidian-trueexport@0.1.0;jszip@3.10.1;dompurify@3.4.13;pako@1.0.11'
+
+      # Confirm LICENSE is PolyForm Shield 1.0.0, unmodified (docs/legal/README.md
+      # §0.2). Offline form: an offline SHA-256 pin of the normalised licence body,
+      # so CI never depends on a third-party website being up. Any non-zero exit
+      # (drift=1, could-not-check=2) fails the job.
+      - name: Verify LICENSE (offline pin)
+        run: python3 docs/legal/verify-license.py --license LICENSE
+
       - name: Lint
         run: npm run lint
 
