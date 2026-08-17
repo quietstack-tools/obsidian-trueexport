@@ -13,6 +13,11 @@ import { PRO_URL } from "./export-modal";
 // email on the page — no pre-session needed).
 const POLAR_PORTAL_URL = "https://polar.sh/quietstack/portal";
 
+// The Pro terms of purchase. PRO_TERMS.md states it is linked from the settings
+// tab, so a user can read the terms before paying; surfaced below regardless of
+// activation state.
+const TERMS_URL = "https://quietstack.tools/trueexport/terms";
+
 export interface SettingsHost {
   settings: TrueExportSettings;
   saveSettings(): Promise<void>;
@@ -279,6 +284,19 @@ export class TrueExportSettingTab extends PluginSettingTab {
             this.display();
           });
       });
+
+    // Always available, whether or not a licence is activated, so a user can
+    // read the Pro terms before paying (PRO_TERMS.md states the settings tab
+    // links to them).
+    new Setting(containerEl)
+      .setName("Terms of purchase")
+      .setDesc("Read the TrueExport Pro terms before you buy.")
+      .addButton((b) =>
+        b.setButtonText("View terms").onClick(() => {
+          window.open(TERMS_URL, "_blank");
+        }),
+      );
+
     if (licence.isActivated) {
       // Already Pro: offer licence/billing management, not an upsell.
       new Setting(containerEl)
