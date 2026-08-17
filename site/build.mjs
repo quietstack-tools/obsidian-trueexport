@@ -330,6 +330,21 @@ ${proList}
   return shell("TrueExport — Obsidian export to Word, PDF and HTML", body);
 }
 
+// The 404 page. Cloudflare Pages serves /404.html with a real 404 status for
+// unmatched paths, replacing the index.html fallback that made every URL 200.
+function notFoundPage() {
+  const body = `<h1>Page not found</h1>
+    <p class="home-lede">Sorry — that page doesn't exist.</p>
+    <ul class="home-links">
+      <li><a href="/">Home</a></li>
+      <li><a href="/trueexport/commitments">Free Feature Commitment</a></li>
+      <li><a href="/trueexport/terms">Pro Terms of Purchase</a></li>
+      <li><a href="/privacy">Privacy Policy</a></li>
+      <li><a href="https://github.com/quietstack-tools/obsidian-trueexport">Source on GitHub</a></li>
+    </ul>`;
+  return shell("Page not found — TrueExport", body);
+}
+
 // ---- build ----------------------------------------------------------------
 
 // The three document pages, each derived from its markdown source of truth.
@@ -353,3 +368,8 @@ const proTermsMd = readFileSync(join(repoRoot, "PRO_TERMS.md"), "utf-8");
 const landingFile = join(publicDir, "trueexport.html");
 writeFileSync(landingFile, landingPage(extractProFeatures(proTermsMd)), "utf-8");
 console.log(`Generated ${landingFile} (product landing page).`);
+
+// The 404 page (served with a real 404 status for unmatched paths).
+const notFoundFile = join(publicDir, "404.html");
+writeFileSync(notFoundFile, notFoundPage(), "utf-8");
+console.log(`Generated ${notFoundFile} (404 page).`);

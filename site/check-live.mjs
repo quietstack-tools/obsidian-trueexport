@@ -99,8 +99,53 @@ for (const p of PAGES) {
 
 if (drift) {
   console.error("\n  Redeploy the site (npm run deploy:site) so the hosted copies match\n" +
-                "  the repository copies.\n");
+                "  the repository copies.");
+} else {
+  console.log("\n  PASS  All published pages match their source documents.");
+}
+
+// --- URL status guard ------------------------------------------------------
+// Until a 404.html existed, every path returned 200 (the index.html fallback),
+// so a status check could never fail. The known-bad assertion below is what
+// makes these meaningful: it breaks if the SPA-style fallback is re-enabled.
+const OK_URLS = [
+  "https://quietstack.tools/",
+  "https://quietstack.tools/trueexport",
+  "https://quietstack.tools/trueexport/commitments",
+  "https://quietstack.tools/trueexport/terms",
+  "https://quietstack.tools/privacy",
+];
+const BAD_URL = "https://quietstack.tools/__not-a-real-page-check-live__";
+
+async function statusOf(url) {
+  try {
+    // redirect: "manual" so a real page that only 200s via a 3xx would fail the
+    // "bare 200" expectation rather than being silently followed.
+    return (await fetch(url, { redirect: "manual" })).status;
+  } catch (e) {
+    fail(`Could not fetch ${url}: ${e.message}`, 2);
+  }
+}
+
+console.log("\n  URL status guard:");
+let statusFail = false;
+for (const url of OK_URLS) {
+  const s = await statusOf(url);
+  if (s === 200) console.log(`    OK  200  ${url}`);
+  else { statusFail = true; console.error(`    FAIL     ${url} returned ${s}, expected 200`); }
+}
+const bad = await statusOf(BAD_URL);
+if (bad === 404) console.log(`    OK  404  ${BAD_URL}`);
+else {
+  statusFail = true;
+  console.error(`    FAIL     ${BAD_URL} returned ${bad}, expected 404`);
+  console.error("             (200 here means the not-found fallback is serving index.html —");
+  console.error("              real 404s are off, so every URL status check is meaningless.)");
+}
+
+if (drift || statusFail) {
+  console.error("");
   process.exit(1);
 }
-console.log("\n  PASS  All published pages match their source documents.\n");
+console.log("\n  PASS  Pages match their sources; all URLs return the expected status.\n");
 process.exit(0);
