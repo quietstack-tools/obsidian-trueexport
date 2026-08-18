@@ -66,6 +66,7 @@ export class BatchModal extends Modal {
       );
       this.showSummary(result);
     } catch (error) {
+      console.error("[TrueExport]", error);
       this.done = true;
       if (this.progressEl) {
         this.progressEl.setText(`Folder export failed: ${error instanceof Error ? error.message : String(error)}`);

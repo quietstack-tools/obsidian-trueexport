@@ -451,6 +451,7 @@ export async function exportFolder(params: BatchExportParams): Promise<BatchResu
       warnings.push(...result.warnings);
     } catch (error) {
       // One bad note must not abort the whole batch.
+      console.error("[TrueExport]", error);
       failures.push({ path: sourcePath, error: error instanceof Error ? error.message : String(error) });
     }
     onProgress?.(i + 1, notePaths.length);
