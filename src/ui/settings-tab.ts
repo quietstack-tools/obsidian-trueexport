@@ -3,11 +3,12 @@
 // The settings tab (§6.4): General, Word, PDF, HTML, Advanced, Licence and
 // About. Licence fields exist here but activation logic lands in Stage 8.
 
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, Plugin, PluginSettingTab, Setting } from "obsidian";
 import type { ImageDpi, PageSize } from "../core/options";
 import type { TrueExportSettings } from "./settings";
 import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
+import { isValidExportRoot, pickExportFolder } from "../fs-writer";
 
 // Polar's documented static customer-portal URL (customer authenticates by
 // email on the page — no pre-session needed).
@@ -72,15 +73,41 @@ export class TrueExportSettingTab extends PluginSettingTab {
           save();
         }),
     );
-    new Setting(containerEl)
-      .setName("Custom output folder")
-      .setDesc("Used when output location is “Custom folder”.")
-      .addText((t) =>
-        t.setPlaceholder("Exports").setValue(s.customOutputFolder).onChange((v) => {
-          s.customOutputFolder = v;
-          save();
-        }),
-      );
+    if (Platform.isDesktop) {
+      // A real filesystem folder, chosen via the native OS dialog — the one
+      // documented exception to "never write outside the vault" (CLAUDE.md).
+      // The path is never free-typed, so it can't end up as a literal "~" or
+      // a vault-relative guess; it's always a real absolute directory.
+      new Setting(containerEl)
+        .setName("Custom output folder")
+        .setDesc(
+          s.customOutputFolder
+            ? `Used when output location is “Custom folder”. Currently: ${s.customOutputFolder}`
+            : "Used when output location is “Custom folder”. Not set — exports fall back to the vault root.",
+        )
+        .addButton((b) =>
+          b.setButtonText("Choose folder…").onClick(async () => {
+            const chosen = await pickExportFolder();
+            if (chosen === null) return;
+            if (!isValidExportRoot(chosen)) {
+              new Notice("That folder couldn't be used. Choose a different one.");
+              return;
+            }
+            s.customOutputFolder = chosen;
+            await this.host.saveSettings();
+            this.display();
+          }),
+        );
+    } else {
+      // No Electron/native dialog on mobile — the setting is desktop-only.
+      // Exports with "Custom folder" selected fall back to the vault root
+      // (§7.5-style platform split, same pattern as PDF being desktop-only).
+      new Setting(containerEl)
+        .setName("Custom output folder")
+        .setDesc(
+          "Desktop only. On mobile, “Custom folder” output falls back to the vault root.",
+        );
+    }
     new Setting(containerEl)
       .setName("Filename pattern")
       .setDesc("Placeholders: {{title}}, {{date}}, {{time}}.")

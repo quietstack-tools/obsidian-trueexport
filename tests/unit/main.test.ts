@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { App, Platform } from "obsidian";
 import TrueExportPlugin from "../../main";
 
@@ -11,6 +14,7 @@ function makePlugin(): TrueExportPlugin {
 
 beforeEach(() => {
   Platform.isMobile = false;
+  Platform.isDesktop = true;
 });
 
 describe("TrueExportPlugin.onload", () => {
@@ -67,6 +71,61 @@ describe("TrueExportPlugin.onload", () => {
     const plugin = makePlugin();
     await plugin.onload();
     expect(() => plugin.onunload()).not.toThrow();
+  });
+
+  it("writes to a real filesystem folder when a valid custom desktop destination is set", async () => {
+    Platform.isMobile = false;
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "trueexport-fswriter-"));
+    try {
+      const plugin = makePlugin();
+      await plugin.onload();
+      plugin.settings.outputLocation = "custom";
+      plugin.settings.customOutputFolder = tmpRoot;
+      plugin.settings.filenamePattern = "Note";
+      (plugin.app.vault as unknown as { notes: Map<string, string> }).notes.set("Note.md", "# Hi\n\nBody");
+      (plugin.app.workspace as unknown as { activeFile: unknown }).activeFile = {
+        path: "Note.md",
+        extension: "md",
+        basename: "Note",
+      };
+
+      await plugin.runExport("Note.md", "html", "default");
+
+      // Landed on real disk at the chosen folder, not in the mock vault.
+      expect(fs.existsSync(path.join(tmpRoot, "Note.html"))).toBe(true);
+      expect((plugin.app.vault as unknown as { created: Map<string, unknown> }).created.size).toBe(0);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the vault-confined writer on mobile even if an absolute custom folder is stored", async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "trueexport-fswriter-mobile-"));
+    try {
+      const plugin = makePlugin();
+      await plugin.onload();
+      plugin.settings.outputLocation = "custom";
+      plugin.settings.customOutputFolder = tmpRoot;
+      plugin.settings.filenamePattern = "Note";
+      (plugin.app.vault as unknown as { notes: Map<string, string> }).notes.set("Note.md", "# Hi\n\nBody");
+      (plugin.app.workspace as unknown as { activeFile: unknown }).activeFile = {
+        path: "Note.md",
+        extension: "md",
+        basename: "Note",
+      };
+      Platform.isMobile = true;
+      Platform.isDesktop = false;
+
+      await plugin.runExport("Note.md", "html", "default");
+
+      // Never touched the real folder on disk — confined to the mock vault
+      // instead (outputFolder() treats "custom" without a usable fs writer as
+      // vault root, same as an empty custom folder).
+      expect(fs.existsSync(path.join(tmpRoot, "Note.html"))).toBe(false);
+      expect((plugin.app.vault as unknown as { created: Map<string, unknown> }).created.has("Note.html")).toBe(true);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
   });
 
   it("never performs a network call on load (licence is validated only on Activate)", async () => {

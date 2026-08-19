@@ -14,6 +14,7 @@ import {
   createHtmlSanitizer,
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
+import { createFsWriter, isValidExportRoot } from "./src/fs-writer";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
 import type { ExportWarning } from "./src/core/warnings";
@@ -22,6 +23,7 @@ import {
   exportFolder,
   scanNote,
   basename,
+  isAbsoluteOutputPath,
   type BatchResult,
   type ExportDeps,
   type VaultWriter,
@@ -225,7 +227,12 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
     new Notice(`${feature} requires TrueExport Pro. Learn more at ${PRO_URL}`);
   }
 
-  private writer(): VaultWriter {
+  /**
+   * The vault-backed writer, used for every export except one. Never swap
+   * this out anywhere but `writer()` below — it's the only place the
+   * fs-backed exception (custom desktop destination) is decided.
+   */
+  private vaultWriter(): VaultWriter {
     const vault = this.app.vault;
     return {
       exists: (path) => vault.getAbstractFileByPath(path) !== null,
@@ -244,6 +251,28 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
         }
       },
     };
+  }
+
+  /**
+   * The one documented exception to "never write outside the vault"
+   * (CLAUDE.md): a custom export destination the user picked via the native
+   * OS folder dialog (desktop only — settings-tab.ts never lets mobile store
+   * an absolute path). Falls back to the vault-backed writer — which then
+   * confines "Custom folder" output to the vault root — if the stored path
+   * isn't a real, absolute, existing directory (e.g. it was moved or deleted
+   * since it was picked).
+   */
+  private writer(): VaultWriter {
+    const { outputLocation, customOutputFolder } = this.settings;
+    if (
+      Platform.isDesktop &&
+      outputLocation === "custom" &&
+      isAbsoluteOutputPath(customOutputFolder) &&
+      isValidExportRoot(customOutputFolder)
+    ) {
+      return createFsWriter(customOutputFolder);
+    }
+    return this.vaultWriter();
   }
 
   async loadSettings(): Promise<void> {

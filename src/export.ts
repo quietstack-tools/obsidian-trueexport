@@ -461,12 +461,29 @@ export async function exportFolder(params: BatchExportParams): Promise<BatchResu
   return { outputs, warnings, failures, total: notePaths.length, cancelled };
 }
 
+/**
+ * Matches an absolute OS filesystem path (POSIX "/…" or a Windows drive like
+ * "C:\…"/"C:/…"), as returned by the desktop folder-picker dialog (§6.4). Used
+ * to tell an absolute export destination — resolved directly by an fs-backed
+ * VaultWriter rooted at that folder (see src/fs-writer.ts) — apart from a
+ * vault-relative value (the mobile fallback, or a pre-picker stored setting),
+ * which is still confined to the vault below.
+ */
+const ABSOLUTE_OS_PATH = /^(?:[a-zA-Z]:[\\/]|\/)/;
+
+export function isAbsoluteOutputPath(path: string): boolean {
+  return ABSOLUTE_OS_PATH.test(path);
+}
+
 function outputFolder(settings: TrueExportSettings, sourcePath: string): string {
   switch (settings.outputLocation) {
     case "vault-root":
       return "";
     case "custom":
-      return confineToVault(settings.customOutputFolder);
+      // An absolute path is resolved entirely by the writer (rooted at that
+      // folder already) — nothing to append. A vault-relative value still
+      // goes through confinement so it can never escape the vault.
+      return isAbsoluteOutputPath(settings.customOutputFolder) ? "" : confineToVault(settings.customOutputFolder);
     default:
       return dirname(sourcePath);
   }
