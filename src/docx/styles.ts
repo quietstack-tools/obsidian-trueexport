@@ -16,7 +16,10 @@ import type { RefParaProps, RefRunProps, RefStyle, ReferenceStyles } from "./ref
 
 export const BODY_FONT = "Calibri";
 export const HEADING_FONT = "Calibri Light";
-export const CODE_FONT = "Consolas";
+// Consolas is Windows/Office-only and triggered a "missing font" warning when
+// opening exports in Apple Pages. Courier New ships with both Windows and
+// macOS (and is bundled with Pages/Office), so it needs no substitution.
+export const CODE_FONT = "Courier New";
 
 /** w:lang so Word's spellchecker behaves (§5.1). Applied per run. */
 export const RUN_LANGUAGE = { value: "en-US" };
