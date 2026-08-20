@@ -77,14 +77,18 @@ describe("DOCX structure (§9.3)", () => {
     expect(table.getElementsByTagName("w:tr").length).toBe(1);
     expect(table.getElementsByTagName("w:tc").length).toBe(1);
 
-    // Table borders: only bottom is visible; top/left/right/inside are "none".
+    // Table borders: only bottom is visible; top/left/right/inside are "nil".
+    // Attempt 7: LibreOffice Writer was observed rendering all four sides of
+    // this table despite explicit w:val="none" on top/left/right/inside —
+    // "nil" (what Word itself emits for "no border") is the more broadly
+    // compatible OOXML value for the same "no border" semantic.
     const tblBorders = table.getElementsByTagName("w:tblBorders");
     expect(tblBorders.length).toBe(1);
     const bottom = tblBorders[0].getElementsByTagName("w:bottom")[0];
     expect(bottom.getAttribute("w:val")).toBe("single");
     for (const side of ["w:top", "w:left", "w:right", "w:insideH", "w:insideV"]) {
       const el = tblBorders[0].getElementsByTagName(side)[0];
-      expect(el.getAttribute("w:val")).toBe("none");
+      expect(el.getAttribute("w:val")).toBe("nil");
     }
 
     // Full body-text width, matching the other single-cell tables in this file.

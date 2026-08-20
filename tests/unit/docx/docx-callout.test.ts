@@ -4,10 +4,13 @@ import { renderToDocx } from "../../helpers/render-docx";
 describe("DOCX callouts", () => {
   it("renders a single-cell table with a 4pt coloured left border only", async () => {
     const { documentXml } = await renderToDocx("> [!note] Heads Up\n> body text");
-    // 4pt (sz=32) single left border in the note colour, other borders none.
+    // 4pt (sz=32) single left border in the note colour; other sides use
+    // "nil" (not "none") — LibreOffice was observed rendering all four table
+    // sides with "none" (docx-structure.test.ts, attempt 7), so "nil" (what
+    // Word itself emits for "no border") is used everywhere in this file.
     expect(documentXml).toContain('w:left w:val="single" w:color="086DDD" w:sz="32"');
-    expect(documentXml).toContain('w:top w:val="none"');
-    expect(documentXml).toContain('w:right w:val="none"');
+    expect(documentXml).toContain('w:top w:val="nil"');
+    expect(documentXml).toContain('w:right w:val="nil"');
   });
 
   it("tints the cell background", async () => {

@@ -52,7 +52,15 @@ const HEADING_LEVELS = [
   HeadingLevel.HEADING_6,
 ];
 
-const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: "auto" };
+// OOXML (ECMA-376 ST_Border) has two "no border" values: "nil" and "none".
+// They're both spec-legal, but "nil" is what Word itself actually emits when
+// you turn a border off in the UI, and "none" is the less-travelled path —
+// LibreOffice Writer was observed rendering all four sides of the
+// thematicBreak table (attempt 7) despite explicit w:val="none" on
+// top/left/right/insideH/insideV, a known category of interop inconsistency
+// with that value. "nil" is the more broadly-supported choice, so it's used
+// everywhere "no border" is meant here (callouts, code blocks, thematicBreak).
+const NO_BORDER = { style: BorderStyle.NIL, size: 0, color: "auto" };
 
 export function renderBlocks(blocks: BlockNode[], ctx: RenderContext, opts: BlockOpts = {}): Rendered[] {
   const out: Rendered[] = [];
