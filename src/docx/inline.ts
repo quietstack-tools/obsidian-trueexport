@@ -155,6 +155,16 @@ class FieldInstrText extends XmlComponent {
  * from documented OOXML/Word field behaviour, not a confirmed re-test: I
  * can't render in Word myself, so treat this as unverified until manually
  * checked.
+ *
+ * Known, accepted interaction difference (confirmed by manual test, not a
+ * defect): the real `w:footnoteReference` marker is double-click-navigable —
+ * Word's built-in behaviour for genuine footnote/endnote references only.
+ * A NOTEREF field, like any field-based cross-reference or hyperlink in
+ * Word, is Ctrl/Cmd+click-navigable instead, Word's standard convention for
+ * that construct everywhere else in the app. There's no way to make a field
+ * double-clickable like a real footnote reference — this is inherent to
+ * Word's own interaction model, not something this implementation can
+ * change.
  */
 function footnoteReferenceRun(n: number, ctx: RenderContext): InlineRun[] {
   const bookmarkId = sanitizeAnchor(`footnoteref-${n}`);
