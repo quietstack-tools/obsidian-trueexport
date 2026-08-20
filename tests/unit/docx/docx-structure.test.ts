@@ -59,40 +59,35 @@ describe("DOCX structure (§9.3)", () => {
     expect(documentXml).toContain("w:lang");
   });
 
-  it("renders a horizontal rule as a paragraph-level bottom border with explicit height (cross-app compatibility)", async () => {
+  it("renders a horizontal rule as a single-cell table with only a bottom border (cross-app compatibility)", async () => {
+    // Three paragraph-border attempts (plain w:pBdr; + spacing/rPr size;
+    // + an explicit run, first empty then a non-breaking space) all rendered
+    // correctly in Word but were confirmed by manual test to leave the rule
+    // invisible in Apple Pages. Switched to the same single-cell-table
+    // pattern the codebase already uses for callouts/code blocks, which
+    // sidesteps paragraph-border rendering entirely.
     const { documentXml } = await renderToDocx("First paragraph.\n\n---\n\nSecond paragraph.");
     const doc = new DOMParser().parseFromString(documentXml, "application/xml");
-    const pBdr = doc.getElementsByTagName("w:pBdr");
-    expect(pBdr.length).toBe(1);
-    const bottom = pBdr[0].getElementsByTagName("w:bottom");
-    expect(bottom.length).toBe(1);
-    expect(bottom[0].getAttribute("w:val")).toBe("single");
 
-    // The rule paragraph itself: explicit spacing and a paragraph-mark run
-    // size, so the paragraph has real height even with no run content — an
-    // otherwise fully empty paragraph is how Apple Pages was observed to
-    // drop the rule entirely (the pBdr has no line height to draw against).
-    const rulePPr = pBdr[0].parentNode as Element;
-    expect(rulePPr.tagName).toBe("w:pPr");
-    expect(rulePPr.getElementsByTagName("w:spacing").length).toBe(1);
-    const rPr = rulePPr.getElementsByTagName("w:rPr");
-    expect(rPr.length).toBe(1);
-    expect(rPr[0].getElementsByTagName("w:sz").length).toBe(1);
+    const tables = doc.getElementsByTagName("w:tbl");
+    expect(tables.length).toBe(1);
+    const table = tables[0];
 
-    // The rule paragraph must carry an actual <w:r> run (not just
-    // paragraph-mark rPr) — spacing + rPr alone were not enough to make
-    // Apple Pages draw the border (verified by manual test; attempt 2).
-    const rulePara = rulePPr.parentNode as Element;
-    expect(rulePara.tagName).toBe("w:p");
-    const runs = Array.from(rulePara.childNodes).filter((n): n is Element => (n as Element).tagName === "w:r");
-    expect(runs.length).toBe(1);
+    // Exactly one row, one cell.
+    expect(table.getElementsByTagName("w:tr").length).toBe(1);
+    expect(table.getElementsByTagName("w:tc").length).toBe(1);
 
-    // The run's text must be genuinely non-empty — a self-closing
-    // <w:t xml:space="preserve"/> (empty string) was still not enough
-    // (attempt 2, confirmed by inspecting the generated XML). A non-breaking
-    // space gives the <w:t> real content that can't be whitespace-collapsed.
-    const text = runs[0].getElementsByTagName("w:t")[0];
-    expect(text.textContent).toBe(" ");
-    expect(text.getAttribute("xml:space")).toBe("preserve");
+    // Table borders: only bottom is visible; top/left/right/inside are "none".
+    const tblBorders = table.getElementsByTagName("w:tblBorders");
+    expect(tblBorders.length).toBe(1);
+    const bottom = tblBorders[0].getElementsByTagName("w:bottom")[0];
+    expect(bottom.getAttribute("w:val")).toBe("single");
+    for (const side of ["w:top", "w:left", "w:right", "w:insideH", "w:insideV"]) {
+      const el = tblBorders[0].getElementsByTagName(side)[0];
+      expect(el.getAttribute("w:val")).toBe("none");
+    }
+
+    // Full body-text width, matching the other single-cell tables in this file.
+    expect(documentXml).toContain('w:tblW w:type="pct" w:w="100%"');
   });
 });

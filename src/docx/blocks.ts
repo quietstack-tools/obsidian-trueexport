@@ -105,24 +105,7 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     case "blockquote":
       return renderBlocks(block.children, ctx, { quote: true, depth: opts.depth });
     case "thematicBreak":
-      // A paragraph-level w:pBdr/w:bottom border (the standard OOXML rule
-      // construct — also what docx's own `thematicBreak: true` shorthand
-      // generates) draws in Word either way. Spacing + a paragraph-mark rPr
-      // size alone were NOT enough to make Apple Pages draw it (attempt 1,
-      // verified by manual test). Neither was an empty-string run (attempt
-      // 2): inspecting the generated XML showed `<w:t xml:space="preserve"/>`
-      // — a self-closing, genuinely empty text element — which some
-      // importers may still treat as no content despite the run wrapper
-      // being present. Attempt 3: use a single non-breaking space (U+00A0)
-      // so `<w:t>` has real, non-whitespace-collapsible content.
-      return [
-        new Paragraph({
-          border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder, space: 1 } },
-          spacing: { before: 120, after: 120 },
-          run: { size: 22 },
-          children: [new TextRun({ text: "\u00A0", size: 22 })],
-        }),
-      ];
+      return [renderThematicBreak()];
     case "imageBlock":
       return renderImageBlock(block, ctx);
     case "htmlBlock":
@@ -188,6 +171,50 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
   }
 
   return out;
+}
+
+/**
+ * A horizontal rule, rendered as a 1×1 table with only a bottom border —
+ * same pattern as renderCallout/renderCodeBlock below (see the file header
+ * comment: single-cell tables survive Word, Pages, Google Docs and
+ * LibreOffice; nested constructs don't).
+ *
+ * Three paragraph-border attempts (a plain w:pBdr/w:bottom on an empty
+ * paragraph; the same plus explicit spacing and a paragraph-mark rPr size;
+ * the same plus an actual run, first with empty text then with a
+ * non-breaking space) were all confirmed by manual testing to render
+ * correctly in Word but leave the rule invisible in Apple Pages. Switching
+ * to a table sidesteps paragraph-border rendering entirely, the same way
+ * the codebase already avoids paragraph-level styling for callouts/code
+ * blocks.
+ *
+ * Minimal cell margins keep it reading as a hairline rather than a content
+ * box — no attempt yet to reproduce this in Pages, so treat as unverified
+ * until manually re-tested there.
+ */
+function renderThematicBreak(): Table {
+  const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: NO_BORDER,
+      left: NO_BORDER,
+      right: NO_BORDER,
+      bottom,
+      insideHorizontal: NO_BORDER,
+      insideVertical: NO_BORDER,
+    },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            margins: { top: 0, bottom: 0, left: 0, right: 0 },
+            children: [new Paragraph({ spacing: { before: 0, after: 0 }, children: [] })],
+          }),
+        ],
+      }),
+    ],
+  });
 }
 
 function renderCallout(node: CalloutNode, ctx: RenderContext): Table {
