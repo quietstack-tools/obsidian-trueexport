@@ -271,7 +271,14 @@ function renderInlineNode(node: InlineNode): string {
       if (node.assignedNumber === undefined) return "";
       return `<sup class="footnote-ref" id="fnref-${node.assignedNumber}"><a href="#fn-${node.assignedNumber}">${node.assignedNumber}</a></sup>`;
     case "lineBreak":
-      return node.hard ? "<br>\n" : "\n";
+      // Obsidian's default (non-strict-line-breaks) editor treats a plain
+      // newline within a paragraph as a real visual line break, same as an
+      // explicit hard break — a raw "\n" in HTML source collapses to
+      // whitespace when rendered, so both cases need <br> here (same root
+      // cause and fix as the DOCX renderer's w:br handling). The IDM's
+      // `hard` flag is left as-is for any consumer that wants the strict-
+      // CommonMark distinction.
+      return "<br>\n";
     case "mathInline":
       return renderMath(node.latex, false);
     default:

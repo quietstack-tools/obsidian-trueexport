@@ -101,4 +101,28 @@ describe("HTML frontmatter and attribution", () => {
     expect(html).toContain("<th>author</th>");
     expect(html).toContain("<td>Jane</td>");
   });
+
+  it("renders a soft line break (single newline, no blank line) as a visible <br>, not collapsed whitespace", async () => {
+    // Obsidian's default (non-strict-line-breaks) editor treats a plain
+    // newline within a paragraph as a real line break, same as an explicit
+    // hard break — a raw "\n" in HTML source collapses to whitespace when
+    // rendered, so consecutive non-blank-line-separated lines need an
+    // actual <br> each, same root cause and fix as the DOCX renderer.
+    const { html } = await renderToHtml("Plain: one\nAliased: two\nSection: three\nBroken: four");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const p = doc.querySelector("p");
+    expect(p).not.toBeNull();
+    expect(p!.querySelectorAll("br").length).toBe(3);
+    expect(html).toContain("Plain: one<br>");
+    expect(html).toContain("Aliased: two<br>");
+    expect(html).toContain("Section: three<br>");
+    expect(html).toContain("Broken: four");
+  });
+
+  it("renders an explicit hard break (trailing two spaces) as a <br> too", async () => {
+    const { html } = await renderToHtml("first line  \nsecond line");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const p = doc.querySelector("p");
+    expect(p!.querySelectorAll("br").length).toBe(1);
+  });
 });
