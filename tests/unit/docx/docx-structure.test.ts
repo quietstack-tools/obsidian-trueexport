@@ -58,4 +58,25 @@ describe("DOCX structure (§9.3)", () => {
     const { documentXml } = await renderToDocx(SOURCE);
     expect(documentXml).toContain("w:lang");
   });
+
+  it("renders a horizontal rule as a paragraph-level bottom border with explicit height (cross-app compatibility)", async () => {
+    const { documentXml } = await renderToDocx("First paragraph.\n\n---\n\nSecond paragraph.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const pBdr = doc.getElementsByTagName("w:pBdr");
+    expect(pBdr.length).toBe(1);
+    const bottom = pBdr[0].getElementsByTagName("w:bottom");
+    expect(bottom.length).toBe(1);
+    expect(bottom[0].getAttribute("w:val")).toBe("single");
+
+    // The rule paragraph itself: explicit spacing and a paragraph-mark run
+    // size, so the paragraph has real height even with no run content — an
+    // otherwise fully empty paragraph is how Apple Pages was observed to
+    // drop the rule entirely (the pBdr has no line height to draw against).
+    const rulePPr = pBdr[0].parentNode as Element;
+    expect(rulePPr.tagName).toBe("w:pPr");
+    expect(rulePPr.getElementsByTagName("w:spacing").length).toBe(1);
+    const rPr = rulePPr.getElementsByTagName("w:rPr");
+    expect(rPr.length).toBe(1);
+    expect(rPr[0].getElementsByTagName("w:sz").length).toBe(1);
+  });
 });
