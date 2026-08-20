@@ -17,6 +17,7 @@ import type {
   BlockNode,
   FootnoteDefinitionNode,
   InlineNode,
+  ParagraphNode,
   TableRow,
   UnsupportedNode,
 } from "../model/nodes";
@@ -61,6 +62,10 @@ async function resolveNote(
       out.push(...spliced);
       continue;
     }
+    if (block.type === "paragraph" && hasLineEmbed(block.children)) {
+      out.push(...(await resolveParagraphLines(block, fromPath, chain, ctx)));
+      continue;
+    }
     out.push(await resolveBlock(block, fromPath, chain, ctx));
   }
   return out;
@@ -69,11 +74,81 @@ async function resolveNote(
 /** A paragraph whose sole child is an embed link is a block-level transclusion. */
 function asBlockEmbed(block: BlockNode): EmbedTarget | null {
   if (block.type !== "paragraph" || block.children.length !== 1) return null;
-  const child = block.children[0];
-  if (child.type === "link" && child.target.kind === "internal" && child.target.embed) {
-    return child.target;
-  }
+  return lineEmbedTarget(block.children);
+}
+
+/** An embed link that is the only content on its (soft- or hard-wrapped) line. */
+function lineEmbedTarget(line: InlineNode[]): EmbedTarget | null {
+  if (line.length !== 1) return null;
+  const n = line[0];
+  if (n.type === "link" && n.target.kind === "internal" && n.target.embed) return n.target;
   return null;
+}
+
+/** Split a paragraph's children into lines at each lineBreak, keeping the break nodes. */
+function splitParagraphLines(children: InlineNode[]): { line: InlineNode[]; breakAfter?: InlineNode }[] {
+  const segments: { line: InlineNode[]; breakAfter?: InlineNode }[] = [{ line: [] }];
+  for (const child of children) {
+    if (child.type === "lineBreak") {
+      segments[segments.length - 1].breakAfter = child;
+      segments.push({ line: [] });
+    } else {
+      segments[segments.length - 1].line.push(child);
+    }
+  }
+  return segments;
+}
+
+/**
+ * A multi-line paragraph (soft- or hard-wrapped, no blank line) where at
+ * least one line is nothing but an embed link — e.g. a label line followed
+ * by `![[Note]]` on the next line. Obsidian treats an embed alone on its own
+ * line as a block transclusion regardless of what other lines share the same
+ * paragraph; a single-child paragraph is already caught by asBlockEmbed, so
+ * this only needs to fire for the multi-line case.
+ */
+function hasLineEmbed(children: InlineNode[]): boolean {
+  if (!children.some((c) => c.type === "lineBreak")) return false;
+  return splitParagraphLines(children).some((seg) => lineEmbedTarget(seg.line) !== null);
+}
+
+/**
+ * Splice out each line that's a lone embed as its own transclusion, while
+ * consecutive non-embed lines are kept together as ordinary paragraph(s) —
+ * a genuinely mid-text embed (sharing a line with other text, e.g.
+ * "see ![[Other]] here") is untouched and still resolves as a plain link
+ * (§4.3, tested in transclusion.test.ts).
+ */
+async function resolveParagraphLines(
+  block: ParagraphNode,
+  fromPath: string,
+  chain: string[],
+  ctx: ResolveContext,
+): Promise<BlockNode[]> {
+  const segments = splitParagraphLines(block.children);
+  const out: BlockNode[] = [];
+  let group: InlineNode[] = [];
+
+  const flushGroup = async (): Promise<void> => {
+    while (group.length > 0 && group[group.length - 1].type === "lineBreak") group.pop();
+    if (group.length === 0) return;
+    const resolved = await resolveInlineArray(group, fromPath, ctx, block.position?.line);
+    out.push({ ...block, children: resolved });
+    group = [];
+  };
+
+  for (const seg of segments) {
+    const embed = lineEmbedTarget(seg.line);
+    if (embed) {
+      await flushGroup();
+      out.push(...(await expandTransclusion(embed, fromPath, chain, ctx, block.position?.line)));
+    } else {
+      group.push(...seg.line);
+      if (seg.breakAfter) group.push(seg.breakAfter);
+    }
+  }
+  await flushGroup();
+  return out;
 }
 
 async function expandTransclusion(
