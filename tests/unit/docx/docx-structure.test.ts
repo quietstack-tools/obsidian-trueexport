@@ -222,15 +222,32 @@ describe("DOCX structure (§9.3)", () => {
     const footnoteBookmark = bookmarkStarts.find((b) => (b.getAttribute("w:name") ?? "").includes("footnoteref-1"));
     expect(footnoteBookmark).toBeDefined();
 
-    // ...and the repeat citation is a NOTEREF field pointing at it, not a
-    // second w:footnoteReference.
-    const fields = Array.from(doc.getElementsByTagName("w:fldSimple"));
-    expect(fields.length).toBe(1);
-    const instr = fields[0].getAttribute("w:instr") ?? "";
+    // ...and the repeat citation is a real OOXML complex field (begin /
+    // instrText / separate / cached result / end), not a second
+    // w:footnoteReference and not a w:fldSimple.
+    expect(doc.getElementsByTagName("w:fldSimple").length).toBe(0);
+    const fieldChars = Array.from(doc.getElementsByTagName("w:fldChar"));
+    const types = fieldChars.map((f) => f.getAttribute("w:fldCharType"));
+    expect(types).toEqual(["begin", "separate", "end"]);
+    expect(fieldChars[0].getAttribute("w:dirty")).toBe("true");
+
+    const instrTexts = Array.from(doc.getElementsByTagName("w:instrText"));
+    expect(instrTexts.length).toBe(1);
+    const instr = instrTexts[0].textContent ?? "";
     expect(instr).toContain("NOTEREF");
     expect(instr).toContain(footnoteBookmark!.getAttribute("w:name"));
     expect(instr).toContain("\\f");
     expect(instr).toContain("\\h");
+
+    // The cached result run (the visible "1") is explicitly superscript,
+    // not relying only on a style reference — direct formatting is more
+    // likely to survive Word recomputing the field (unverified: can't
+    // render in Word directly).
+    const runs = Array.from(doc.getElementsByTagName("w:r"));
+    const resultRun = runs.find((r) => (r.getElementsByTagName("w:t")[0]?.textContent ?? "") === "1");
+    expect(resultRun).toBeDefined();
+    expect(resultRun!.getElementsByTagName("w:vertAlign")[0]?.getAttribute("w:val")).toBe("superscript");
+    expect(resultRun!.getElementsByTagName("w:rStyle")[0]?.getAttribute("w:val")).toBe("FootnoteReference");
 
     // footnotes.xml still has exactly two real footnote entries — no
     // duplication there (the bug was in the body's reference ids, not
@@ -243,5 +260,37 @@ describe("DOCX structure (§9.3)", () => {
       (f) => Number(f.getAttribute("w:id")) > 0,
     );
     expect(realFootnotes.length).toBe(2);
+  });
+
+  it("never emits two bookmarks with the same numeric w:id, across headings, footnotes, and block refs", async () => {
+    // docx's own Bookmark class generates a fresh, always-1 id counter per
+    // instance — every bookmark anywhere in the doc independently produced
+    // w:id="1" regardless of which feature created it (headings, block
+    // refs, footnote NOTEREF targets), which is invalid OOXML the moment
+    // more than one bookmark exists and broke Word's bookmark/hyperlink
+    // resolution generally, including previously-working links.
+    const source = [
+      "# First Heading",
+      "",
+      "See [[#^b1]] and [[#Second Heading]].",
+      "",
+      "Cited once[^1]. Cited again[^1].",
+      "",
+      "A block with an id. ^b1",
+      "",
+      "# Second Heading",
+      "",
+      "[^1]: The footnote content.",
+    ].join("\n");
+    const { documentXml } = await renderToDocx(source);
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+
+    const bookmarkStarts = Array.from(doc.getElementsByTagName("w:bookmarkStart"));
+    // Sanity: this fixture actually exercises multiple bookmark-creating
+    // features (2 headings + 1 block ref + 1 footnote ref), not just one.
+    expect(bookmarkStarts.length).toBeGreaterThanOrEqual(4);
+
+    const ids = bookmarkStarts.map((b) => b.getAttribute("w:id"));
+    expect(new Set(ids).size).toBe(ids.length); // every id is unique document-wide
   });
 });

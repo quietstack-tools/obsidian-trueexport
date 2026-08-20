@@ -13,7 +13,6 @@ import {
   Table,
   TableRow,
   TableCell,
-  Bookmark,
   HeadingLevel,
   WidthType,
   BorderStyle,
@@ -28,7 +27,7 @@ import type {
   CodeBlockNode,
   ImageBlockNode,
 } from "../core/model/nodes";
-import { renderInline, buildImage, sanitizeAnchor, type InlineRun } from "./inline";
+import { renderInline, buildImage, sanitizeAnchor, createBookmark, type InlineRun } from "./inline";
 import { latexToMath } from "./math";
 import { renderTable } from "./table";
 import { toPlainText } from "../core/parser/inline";
@@ -63,7 +62,7 @@ export function renderBlocks(blocks: BlockNode[], ctx: RenderContext, opts: Bloc
 function wrapBookmark(blockId: string | undefined, runs: InlineRun[], ctx: RenderContext): InlineRun[] {
   if (blockId && !ctx.bookmarks.has(blockId)) {
     ctx.bookmarks.add(blockId);
-    return [new Bookmark({ id: sanitizeAnchor(blockId), children: runs })];
+    return [createBookmark(sanitizeAnchor(blockId), runs, ctx)];
   }
   return runs;
 }
@@ -75,7 +74,7 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
       let children: InlineRun[] = runs;
       if (block.id && !ctx.bookmarks.has(block.id)) {
         ctx.bookmarks.add(block.id);
-        children = [new Bookmark({ id: sanitizeAnchor(block.id), children: runs })];
+        children = [createBookmark(sanitizeAnchor(block.id), runs, ctx)];
       }
       return [
         new Paragraph({

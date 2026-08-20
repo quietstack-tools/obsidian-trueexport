@@ -29,4 +29,15 @@ export interface RenderContext {
    * carry a unique id (see footnoteReferenceRun() in inline.ts).
    */
   footnoteRefs: Set<number>;
+  /**
+   * Allocates the next globally-unique numeric bookmark `w:id` for this
+   * render. docx's own `Bookmark` class generates a fresh id-counter
+   * starting from 0 EVERY time it's constructed, so every `new Bookmark(...)`
+   * anywhere in the codebase independently produces `w:id="1"` — a library
+   * quirk that's invalid OOXML the moment more than one bookmark exists in
+   * the same document. Every bookmark-creating call site must go through
+   * createBookmark() (inline.ts), which uses this instead of trusting
+   * docx's own generator.
+   */
+  nextBookmarkId(): number;
 }

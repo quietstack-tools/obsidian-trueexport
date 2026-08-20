@@ -12,9 +12,13 @@ import {
   InternalHyperlink,
   FootnoteReferenceRun,
   Bookmark,
+  BookmarkStart,
+  BookmarkEnd,
   Math,
-  SimpleField,
+  BuilderElement,
+  XmlComponent,
 } from "docx";
+import type { ParagraphChild } from "docx";
 import { latexToMath } from "./math";
 import type {
   ImageBlockNode,
@@ -35,8 +39,7 @@ export type InlineRun =
   | InternalHyperlink
   | FootnoteReferenceRun
   | Bookmark
-  | Math
-  | SimpleField;
+  | Math;
 
 interface Fmt {
   bold?: boolean;
@@ -57,6 +60,59 @@ export function sanitizeAnchor(id: string): string {
 }
 
 /**
+ * Build a Bookmark with a numeric w:id that's actually unique across the
+ * whole document. docx's own `Bookmark` class calls
+ * `bookmarkUniqueNumericIdGen()` in its constructor — but that factory
+ * returns a BRAND NEW counter starting from 0 every time it's called, so
+ * every single `new Bookmark(...)` anywhere in the codebase independently
+ * produces w:id="1". That's invalid OOXML (bookmark ids must be unique
+ * document-wide, not just unique per code path) and broke Word's bookmark
+ * resolution — including previously-working links — once more than one
+ * bookmark existed in the same export.
+ *
+ * `Bookmark.start`/`.end` are `readonly` in the type declarations but plain
+ * mutable fields at runtime, and `Paragraph` reads them directly (not
+ * anything captured privately at construction time) when it flattens a
+ * Bookmark into `[start, ...children, end]` — see docx's Paragraph
+ * constructor. So constructing normally and then replacing `.start`/`.end`
+ * with correctly-id'd instances, sourced from this render's single shared
+ * counter (RenderContext.nextBookmarkId), is safe and is what every
+ * bookmark-creating call site in this codebase must go through.
+ */
+export function createBookmark(id: string, children: readonly ParagraphChild[], ctx: RenderContext): Bookmark {
+  const bookmark = new Bookmark({ id, children });
+  const numericId = ctx.nextBookmarkId();
+  (bookmark as { start: BookmarkStart }).start = new BookmarkStart(id, numericId);
+  (bookmark as { end: BookmarkEnd }).end = new BookmarkEnd(numericId);
+  return bookmark;
+}
+
+type FieldCharType = "begin" | "separate" | "end";
+
+/** `w:fldChar` — one of the three markers (begin/separate/end) that delimit a complex field. */
+function fieldCharElement(type: FieldCharType, dirty?: true): BuilderElement<{ type: FieldCharType; dirty?: true }> {
+  return new BuilderElement<{ type: FieldCharType; dirty?: true }>({
+    name: "w:fldChar",
+    attributes: dirty
+      ? { type: { key: "w:fldCharType", value: type }, dirty: { key: "w:dirty", value: dirty } }
+      : { type: { key: "w:fldCharType", value: type } },
+  });
+}
+
+/**
+ * `w:instrText` — the field's instruction code (e.g. `NOTEREF x \f \h`). No
+ * `xml:space="preserve"` attribute: the instructions this codebase generates
+ * never have leading/trailing whitespace, so it isn't needed for correctness
+ * here (unlike Word's own generated instrText, which always includes it).
+ */
+class FieldInstrText extends XmlComponent {
+  constructor(instruction: string) {
+    super("w:instrText");
+    this.root.push(instruction);
+  }
+}
+
+/**
  * Word's own footnote model requires every `<w:footnoteReference>` marker in
  * the body to carry a unique `w:id` — footnotes.xml is keyed by footnote
  * number, but the body's reference markers are keyed by *occurrence*, not by
@@ -70,19 +126,36 @@ export function sanitizeAnchor(id: string): string {
  * for a second reference point to an existing footnote (what Word itself
  * inserts for a "cross-reference to an existing footnote"): `\f` formats the
  * field like a footnote/endnote reference (small raised number), `\h` makes
- * it a clickable hyperlink to the bookmark. The cached value uses the
- * "FootnoteReference" character style so it looks identical to a real
- * reference mark before the field is ever updated.
+ * it a clickable hyperlink to the bookmark.
+ *
+ * Built as a genuine OOXML complex field (begin / instrText / separate /
+ * cached result / end, each its own `<w:r>` sibling), not `w:fldSimple`.
+ * Real Word-authored documents always use this four-part form for fields
+ * Word itself inserts — `fldSimple` exists mainly for round-tripping other
+ * tools' output. A first attempt used `fldSimple` with a styled cached run
+ * and the visible marker didn't render as superscript in Word (confirmed by
+ * manual test) despite carrying the right rStyle. Matching Word's own field
+ * shape as closely as possible — including giving the cached result its own
+ * run with EXPLICIT superscript formatting (not just a style reference,
+ * belt-and-suspenders) rather than embedding it inside the field-code run —
+ * is the standard, most Word-native construction, but this is inference
+ * from documented OOXML/Word field behaviour, not a confirmed re-test: I
+ * can't render in Word myself, so treat this as unverified until manually
+ * checked.
  */
-function footnoteReferenceRun(n: number, ctx: RenderContext): Bookmark | SimpleField {
+function footnoteReferenceRun(n: number, ctx: RenderContext): InlineRun[] {
   const bookmarkId = sanitizeAnchor(`footnoteref-${n}`);
   if (!ctx.footnoteRefs.has(n)) {
     ctx.footnoteRefs.add(n);
-    return new Bookmark({ id: bookmarkId, children: [new FootnoteReferenceRun(n)] });
+    return [createBookmark(bookmarkId, [new FootnoteReferenceRun(n)], ctx)];
   }
-  const field = new SimpleField(`NOTEREF ${bookmarkId} \\f \\h`);
-  field.addChildElement(new TextRun({ text: String(n), style: "FootnoteReference", language: RUN_LANGUAGE }));
-  return field;
+  return [
+    new TextRun({ children: [fieldCharElement("begin", true)] }),
+    new TextRun({ children: [new FieldInstrText(`NOTEREF ${bookmarkId} \\f \\h`)] }),
+    new TextRun({ children: [fieldCharElement("separate")] }),
+    new TextRun({ text: String(n), superScript: true, style: "FootnoteReference", language: RUN_LANGUAGE }),
+    new TextRun({ children: [fieldCharElement("end")] }),
+  ];
 }
 
 function textRun(text: string, fmt: Fmt): TextRun {
@@ -155,7 +228,7 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
         break;
       }
       case "footnoteReference":
-        if (n.assignedNumber !== undefined) out.push(footnoteReferenceRun(n.assignedNumber, ctx));
+        if (n.assignedNumber !== undefined) out.push(...footnoteReferenceRun(n.assignedNumber, ctx));
         break;
       case "lineBreak":
         // Obsidian's default (non-strict-line-breaks) editor renders a

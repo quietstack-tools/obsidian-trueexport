@@ -59,12 +59,18 @@ export async function renderDocx(
   // Rasterise SVGs to PNG (§4.9) before rendering, so rendering stays sync.
   await rasterizeSvgs(collectResources(doc.blocks, doc.footnotes), deps, render.warnings, doc.sourcePath);
 
+  // A local counter, fresh per render call — every bookmark created anywhere
+  // in this document (headings, block refs, footnote NOTEREF targets) draws
+  // from this single sequence, so no two ever collide (see
+  // RenderContext.nextBookmarkId's doc comment for why this exists).
+  let bookmarkIdCounter = 0;
   const ctx: RenderContext = {
     options,
     deps,
     numbering: new NumberingBuilder(),
     bookmarks: new Set(),
     footnoteRefs: new Set(),
+    nextBookmarkId: () => ++bookmarkIdCounter,
   };
 
   const bodyChildren = [];
