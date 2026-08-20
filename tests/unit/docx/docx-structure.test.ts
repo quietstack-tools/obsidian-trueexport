@@ -89,5 +89,30 @@ describe("DOCX structure (§9.3)", () => {
 
     // Full body-text width, matching the other single-cell tables in this file.
     expect(documentXml).toContain('w:tblW w:type="pct" w:w="100%"');
+
+    // Attempt 4 defined the border only at table level, relying on Word-style
+    // inheritance down to the cell — Pages may not replicate that. Attempt 5
+    // mirrors the same bottom border at cell level too (belt and suspenders,
+    // no reliance on inheritance).
+    const cell = table.getElementsByTagName("w:tc")[0];
+    const tcBorders = cell.getElementsByTagName("w:tcBorders");
+    expect(tcBorders.length).toBe(1);
+    const cellBottom = tcBorders[0].getElementsByTagName("w:bottom")[0];
+    expect(cellBottom.getAttribute("w:val")).toBe("single");
+    expect(cellBottom.getAttribute("w:color")).toBe("CCCCCC");
+
+    // The cell paragraph must carry a real, non-empty run — an empty cell
+    // paragraph (attempt 4) risks the same zero-height collapse as the very
+    // first paragraph-only attempt, just nested inside a cell.
+    const cellPara = cell.getElementsByTagName("w:p")[0];
+    const runs = cellPara.getElementsByTagName("w:r");
+    expect(runs.length).toBe(1);
+    const text = runs[0].getElementsByTagName("w:t")[0];
+    expect(text.textContent).toBe(" ");
+
+    // The row has an explicit minimum height, so the cell can't collapse
+    // regardless of how an importer infers height from content.
+    const trHeight = table.getElementsByTagName("w:trHeight")[0];
+    expect(trHeight.getAttribute("w:hRule")).toBe("atLeast");
   });
 });

@@ -19,6 +19,7 @@ import {
   BorderStyle,
   ShadingType,
   AlignmentType,
+  HeightRule,
 } from "docx";
 import type {
   BlockNode,
@@ -183,14 +184,16 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * paragraph; the same plus explicit spacing and a paragraph-mark rPr size;
  * the same plus an actual run, first with empty text then with a
  * non-breaking space) were all confirmed by manual testing to render
- * correctly in Word but leave the rule invisible in Apple Pages. Switching
- * to a table sidesteps paragraph-border rendering entirely, the same way
- * the codebase already avoids paragraph-level styling for callouts/code
- * blocks.
- *
- * Minimal cell margins keep it reading as a hairline rather than a content
- * box — no attempt yet to reproduce this in Pages, so treat as unverified
- * until manually re-tested there.
+ * correctly in Word but leave the rule invisible in Apple Pages. A first
+ * table attempt (attempt 4, table-level w:tblBorders only, empty cell
+ * paragraph) was inspected before manual re-test and had two gaps: no
+ * cell-level w:tcBorders (relying on Word-style inheritance from the table,
+ * which Pages may not replicate) and an empty cell paragraph with no run
+ * (the same zero-height risk as the very first paragraph attempt, just
+ * nested inside a cell). Attempt 5 fixes both: the bottom border is set at
+ * BOTH table and cell level (belt and suspenders — no reliance on
+ * inheritance), the cell paragraph carries a real non-breaking-space run,
+ * and the row has an explicit minimum height so the cell can't collapse.
  */
 function renderThematicBreak(): Table {
   const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
@@ -206,10 +209,17 @@ function renderThematicBreak(): Table {
     },
     rows: [
       new TableRow({
+        height: { value: 60, rule: HeightRule.ATLEAST },
         children: [
           new TableCell({
             margins: { top: 0, bottom: 0, left: 0, right: 0 },
-            children: [new Paragraph({ spacing: { before: 0, after: 0 }, children: [] })],
+            borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom },
+            children: [
+              new Paragraph({
+                spacing: { before: 0, after: 0 },
+                children: [new TextRun({ text: " ", size: 2 })],
+              }),
+            ],
           }),
         ],
       }),
