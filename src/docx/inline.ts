@@ -13,6 +13,7 @@ import {
   FootnoteReferenceRun,
   Bookmark,
   Math,
+  SimpleField,
 } from "docx";
 import { latexToMath } from "./math";
 import type {
@@ -34,7 +35,8 @@ export type InlineRun =
   | InternalHyperlink
   | FootnoteReferenceRun
   | Bookmark
-  | Math;
+  | Math
+  | SimpleField;
 
 interface Fmt {
   bold?: boolean;
@@ -52,6 +54,35 @@ function basename(path: string): string {
 
 export function sanitizeAnchor(id: string): string {
   return id.replace(/[^\w-]/g, "-");
+}
+
+/**
+ * Word's own footnote model requires every `<w:footnoteReference>` marker in
+ * the body to carry a unique `w:id` — footnotes.xml is keyed by footnote
+ * number, but the body's reference markers are keyed by *occurrence*, not by
+ * footnote. Two body markers reusing the same id for the same cited-twice
+ * footnote produces a document Word flags as unreadable/needing repair on
+ * open, and drops the invalid duplicate during that repair.
+ *
+ * The first reference to a given footnote number is a real
+ * `w:footnoteReference` (bookmarked, so later references can target it). Any
+ * repeat reference is a NOTEREF field instead — the standard OOXML mechanism
+ * for a second reference point to an existing footnote (what Word itself
+ * inserts for a "cross-reference to an existing footnote"): `\f` formats the
+ * field like a footnote/endnote reference (small raised number), `\h` makes
+ * it a clickable hyperlink to the bookmark. The cached value uses the
+ * "FootnoteReference" character style so it looks identical to a real
+ * reference mark before the field is ever updated.
+ */
+function footnoteReferenceRun(n: number, ctx: RenderContext): Bookmark | SimpleField {
+  const bookmarkId = sanitizeAnchor(`footnoteref-${n}`);
+  if (!ctx.footnoteRefs.has(n)) {
+    ctx.footnoteRefs.add(n);
+    return new Bookmark({ id: bookmarkId, children: [new FootnoteReferenceRun(n)] });
+  }
+  const field = new SimpleField(`NOTEREF ${bookmarkId} \\f \\h`);
+  field.addChildElement(new TextRun({ text: String(n), style: "FootnoteReference", language: RUN_LANGUAGE }));
+  return field;
 }
 
 function textRun(text: string, fmt: Fmt): TextRun {
@@ -124,7 +155,7 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
         break;
       }
       case "footnoteReference":
-        if (n.assignedNumber !== undefined) out.push(new FootnoteReferenceRun(n.assignedNumber));
+        if (n.assignedNumber !== undefined) out.push(footnoteReferenceRun(n.assignedNumber, ctx));
         break;
       case "lineBreak":
         // Obsidian's default (non-strict-line-breaks) editor renders a

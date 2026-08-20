@@ -192,4 +192,56 @@ describe("DOCX structure (§9.3)", () => {
     expect(paragraphs.length).toBe(1);
     expect(paragraphs[0].getElementsByTagName("w:br").length).toBe(1);
   });
+
+  it("gives a repeated footnote citation a NOTEREF field, not a duplicate w:footnoteReference id", async () => {
+    // Word requires every <w:footnoteReference> in the body to have a
+    // unique id — reusing the same id for a second reference point to the
+    // SAME footnote produces a document Word flags as needing repair on
+    // open, and silently drops/rewrites the invalid duplicate during that
+    // repair (losing the correct jump target). The valid mechanism for a
+    // second reference point to an existing footnote is a NOTEREF field
+    // targeting a bookmark wrapped around the first, real reference.
+    const source = [
+      "First reference[^1]. Second reference[^2]. Third reference back to the first[^1].",
+      "",
+      "[^1]: The first footnote's content.",
+      "[^2]: The second footnote's content.",
+    ].join("\n");
+    const { documentXml, zip } = await renderToDocx(source);
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+
+    // Exactly two real footnote reference markers (one per distinct
+    // footnote) — the repeat citation must NOT be a third one.
+    const refs = Array.from(doc.getElementsByTagName("w:footnoteReference"));
+    expect(refs.length).toBe(2);
+    const ids = refs.map((r) => r.getAttribute("w:id"));
+    expect(new Set(ids).size).toBe(2); // no duplicate ids
+
+    // The first footnote's real reference is bookmarked...
+    const bookmarkStarts = Array.from(doc.getElementsByTagName("w:bookmarkStart"));
+    const footnoteBookmark = bookmarkStarts.find((b) => (b.getAttribute("w:name") ?? "").includes("footnoteref-1"));
+    expect(footnoteBookmark).toBeDefined();
+
+    // ...and the repeat citation is a NOTEREF field pointing at it, not a
+    // second w:footnoteReference.
+    const fields = Array.from(doc.getElementsByTagName("w:fldSimple"));
+    expect(fields.length).toBe(1);
+    const instr = fields[0].getAttribute("w:instr") ?? "";
+    expect(instr).toContain("NOTEREF");
+    expect(instr).toContain(footnoteBookmark!.getAttribute("w:name"));
+    expect(instr).toContain("\\f");
+    expect(instr).toContain("\\h");
+
+    // footnotes.xml still has exactly two real footnote entries — no
+    // duplication there (the bug was in the body's reference ids, not
+    // footnotes.xml itself). Word auto-generates two extra built-in entries
+    // (separator + continuation separator, id="-1"/"0"), so filter to
+    // positive ids only.
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+    const footnotesDoc = new DOMParser().parseFromString(footnotesXml, "application/xml");
+    const realFootnotes = Array.from(footnotesDoc.getElementsByTagName("w:footnote")).filter(
+      (f) => Number(f.getAttribute("w:id")) > 0,
+    );
+    expect(realFootnotes.length).toBe(2);
+  });
 });

@@ -21,4 +21,12 @@ export interface RenderContext {
   numbering: NumberingBuilder;
   /** Bookmark ids already emitted, to avoid duplicates. */
   bookmarks: Set<string>;
+  /**
+   * Footnote numbers that already have a real `w:footnoteReference` marker
+   * (and its bookmark) emitted. A repeat citation of the same footnote
+   * becomes a NOTEREF field targeting that bookmark instead of a second
+   * `w:footnoteReference` — Word requires each body reference marker to
+   * carry a unique id (see footnoteReferenceRun() in inline.ts).
+   */
+  footnoteRefs: Set<number>;
 }

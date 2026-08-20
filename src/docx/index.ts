@@ -64,6 +64,7 @@ export async function renderDocx(
     deps,
     numbering: new NumberingBuilder(),
     bookmarks: new Set(),
+    footnoteRefs: new Set(),
   };
 
   const bodyChildren = [];
