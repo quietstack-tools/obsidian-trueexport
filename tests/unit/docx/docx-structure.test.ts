@@ -125,4 +125,24 @@ describe("DOCX structure (§9.3)", () => {
     const width = Number(gridCol.getAttribute("w:w"));
     expect(width).toBeGreaterThan(5000); // nowhere near the 100-twip default
   });
+
+  it("adds after-spacing following the thematicBreak table (regression from paragraph-to-table conversion)", async () => {
+    // A Table has no OOXML "spacing after" property of its own — the
+    // paragraph-based rule used to carry w:spacing w:after="120" directly,
+    // so converting to a table (attempt 4) silently dropped that gap. Fixed
+    // by an invisible spacer paragraph (no border, no visible content)
+    // immediately after the table, carrying the same 120-twip spacing.
+    const { documentXml } = await renderToDocx("First paragraph.\n\n---\n\nSecond paragraph.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+
+    const table = doc.getElementsByTagName("w:tbl")[0];
+    const spacer = table.nextElementSibling as Element;
+    expect(spacer.tagName).toBe("w:p");
+
+    const spacing = spacer.getElementsByTagName("w:spacing")[0];
+    expect(spacing.getAttribute("w:after")).toBe("120");
+
+    // The spacer carries no run — it exists purely for spacing, not content.
+    expect(spacer.getElementsByTagName("w:r").length).toBe(0);
+  });
 });

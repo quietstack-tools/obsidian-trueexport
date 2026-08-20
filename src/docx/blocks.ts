@@ -106,7 +106,7 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     case "blockquote":
       return renderBlocks(block.children, ctx, { quote: true, depth: opts.depth });
     case "thematicBreak":
-      return [renderThematicBreak()];
+      return renderThematicBreak();
     case "imageBlock":
       return renderImageBlock(block, ctx);
     case "htmlBlock":
@@ -214,12 +214,24 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * turned the rule into a thick gray bar in both LibreOffice AND Pages).
  * Accepted as a known LibreOffice-specific limitation, lowest priority
  * among the four target renderers.
+ *
+ * The paragraph-based version carried its own w:spacing (120 twips/6pt
+ * before and after) directly on the rule paragraph. A Table has no
+ * equivalent "spacing after" property in OOXML, and the row's own height
+ * (60 twips, just enough to keep the cell from collapsing) isn't spacing —
+ * converting to a table silently dropped the after-gap, confirmed by manual
+ * testing as noticeably tighter than before. Restored by appending an
+ * invisible spacer paragraph (no border, no visible content) with the same
+ * 120-twip after-spacing right after the table — the standard way to add
+ * space after a table in OOXML, since tables can't carry that property
+ * themselves.
  */
 const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
+const RULE_SPACING_TWIPS = 120; // Matches the original paragraph-based rule's before/after spacing.
 
-function renderThematicBreak(): Table {
+function renderThematicBreak(): Rendered[] {
   const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
-  return new Table({
+  const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [FULL_WIDTH_TWIPS],
     borders: {
@@ -248,6 +260,13 @@ function renderThematicBreak(): Table {
       }),
     ],
   });
+
+  const spacer = new Paragraph({
+    spacing: { before: 0, after: RULE_SPACING_TWIPS },
+    children: [],
+  });
+
+  return [table, spacer];
 }
 
 function renderCallout(node: CalloutNode, ctx: RenderContext): Table {
