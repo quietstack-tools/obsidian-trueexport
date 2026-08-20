@@ -120,13 +120,26 @@ class FieldInstrText extends XmlComponent {
  * footnote produces a document Word flags as unreadable/needing repair on
  * open, and drops the invalid duplicate during that repair.
  *
- * The first reference to a given footnote number is a real
- * `w:footnoteReference` (bookmarked, so later references can target it). Any
- * repeat reference is a NOTEREF field instead — the standard OOXML mechanism
- * for a second reference point to an existing footnote (what Word itself
- * inserts for a "cross-reference to an existing footnote"): `\f` formats the
- * field like a footnote/endnote reference (small raised number), `\h` makes
- * it a clickable hyperlink to the bookmark.
+ * The first reference to a given footnote number is a plain real
+ * `w:footnoteReference`. Any repeat reference is a NOTEREF field instead —
+ * the standard OOXML mechanism for a second reference point to an existing
+ * footnote: `\f` formats the field like a footnote/endnote reference (small
+ * raised number), `\h` makes it a clickable hyperlink to a bookmark.
+ *
+ * That bookmark (`footnoteref-N`) is NOT on the in-body reference mark —
+ * Word's own "Insert Cross-Reference → Footnote" feature bookmarks the mark
+ * itself, which means clicking a repeat citation lands back on the ORIGINAL
+ * citation point in body text, not the actual footnote content at the page
+ * bottom (confirmed by manual test: mechanically correct, but not the
+ * reader experience wanted here — "click any marker, see the footnote
+ * text"). Word does support bookmarks placed inside footnote/endnote text
+ * itself, navigable via an ordinary internal hyperlink — this is a
+ * documented (if less common) technique, distinct from what the standard
+ * Cross-reference dialog offers. So the bookmark is placed at the START of
+ * the footnote's own content in footnotes.xml instead (see
+ * renderFootnoteContent() in blocks.ts) — every repeat citation's NOTEREF
+ * then jumps straight to the real footnote text, one hop, matching ordinary
+ * reader expectations.
  *
  * Built as a genuine OOXML complex field (begin / instrText / separate /
  * cached result / end, each its own `<w:r>` sibling), not `w:fldSimple`.
@@ -147,7 +160,7 @@ function footnoteReferenceRun(n: number, ctx: RenderContext): InlineRun[] {
   const bookmarkId = sanitizeAnchor(`footnoteref-${n}`);
   if (!ctx.footnoteRefs.has(n)) {
     ctx.footnoteRefs.add(n);
-    return [createBookmark(bookmarkId, [new FootnoteReferenceRun(n)], ctx)];
+    return [new FootnoteReferenceRun(n)];
   }
   return [
     new TextRun({ children: [fieldCharElement("begin", true)] }),

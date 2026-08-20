@@ -17,7 +17,8 @@ import type { ExportOptions, PageSize } from "../core/options";
 import type { WarningCollector } from "../core/warnings";
 import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
-import { renderBlocks, renderFrontmatterTable } from "./blocks";
+import { renderBlocks, renderFrontmatterTable, renderFootnoteContent } from "./blocks";
+import { sanitizeAnchor } from "./inline";
 import type { DocxDeps, RenderContext } from "./context";
 import type { ReferenceStyles } from "./reference-styles";
 
@@ -83,7 +84,8 @@ export async function renderDocx(
   const footnotes: Record<number, { children: Paragraph[] }> = {};
   for (const def of doc.footnotes.values()) {
     if (def.assignedNumber === undefined) continue;
-    const children = renderBlocks(def.children, ctx).filter((c): c is Paragraph => c instanceof Paragraph);
+    const bookmarkId = sanitizeAnchor(`footnoteref-${def.assignedNumber}`);
+    const children = renderFootnoteContent(def.children, bookmarkId, ctx);
     footnotes[def.assignedNumber] = { children };
   }
 

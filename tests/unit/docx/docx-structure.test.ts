@@ -217,10 +217,22 @@ describe("DOCX structure (§9.3)", () => {
     const ids = refs.map((r) => r.getAttribute("w:id"));
     expect(new Set(ids).size).toBe(2); // no duplicate ids
 
-    // The first footnote's real reference is bookmarked...
-    const bookmarkStarts = Array.from(doc.getElementsByTagName("w:bookmarkStart"));
-    const footnoteBookmark = bookmarkStarts.find((b) => (b.getAttribute("w:name") ?? "").includes("footnoteref-1"));
+    // The bookmark lives at the START OF THE FOOTNOTE'S OWN CONTENT in
+    // footnotes.xml, not on the in-body reference mark — Word's own
+    // "Insert Cross-Reference → Footnote" bookmarks the mark, which sends a
+    // repeat citation back to the ORIGINAL citation point in body text
+    // rather than the actual footnote text. Confirmed by manual test that
+    // readers expect "click any marker, see the footnote text" (one hop),
+    // and that Word does support bookmarks placed inside footnote content,
+    // navigable via an ordinary internal hyperlink.
+    const footnotesXmlForBookmark = await zip.file("word/footnotes.xml")!.async("string");
+    const footnotesDocForBookmark = new DOMParser().parseFromString(footnotesXmlForBookmark, "application/xml");
+    const footnoteBookmark = Array.from(footnotesDocForBookmark.getElementsByTagName("w:bookmarkStart")).find((b) =>
+      (b.getAttribute("w:name") ?? "").includes("footnoteref-1"),
+    );
     expect(footnoteBookmark).toBeDefined();
+    // Not in the body — only inside the footnote.
+    expect(doc.getElementsByTagName("w:bookmarkStart").length).toBe(0);
 
     // ...and the repeat citation is a real OOXML complex field (begin /
     // instrText / separate / cached result / end), not a second
@@ -282,10 +294,19 @@ describe("DOCX structure (§9.3)", () => {
       "",
       "[^1]: The footnote content.",
     ].join("\n");
-    const { documentXml } = await renderToDocx(source);
+    const { documentXml, zip } = await renderToDocx(source);
     const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const footnotesXml = await zip.file("word/footnotes.xml")!.async("string");
+    const footnotesDoc = new DOMParser().parseFromString(footnotesXml, "application/xml");
 
-    const bookmarkStarts = Array.from(doc.getElementsByTagName("w:bookmarkStart"));
+    // Bookmark ids must be unique across the WHOLE document — including
+    // across parts, since the footnote reference bookmark now lives in
+    // footnotes.xml (see the test above) while heading/block-ref bookmarks
+    // live in document.xml.
+    const bookmarkStarts = [
+      ...Array.from(doc.getElementsByTagName("w:bookmarkStart")),
+      ...Array.from(footnotesDoc.getElementsByTagName("w:bookmarkStart")),
+    ];
     // Sanity: this fixture actually exercises multiple bookmark-creating
     // features (2 headings + 1 block ref + 1 footnote ref), not just one.
     expect(bookmarkStarts.length).toBeGreaterThanOrEqual(4);

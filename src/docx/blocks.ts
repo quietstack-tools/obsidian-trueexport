@@ -59,6 +59,39 @@ export function renderBlocks(blocks: BlockNode[], ctx: RenderContext, opts: Bloc
   return out;
 }
 
+/**
+ * Render a footnote's own content (for footnotes.xml), with a zero-width
+ * bookmark at the very start so a repeated in-text citation's NOTEREF field
+ * can jump straight to the real footnote text — see the long comment on
+ * footnoteReferenceRun() in inline.ts for why the bookmark lives here rather
+ * than on the in-body reference mark.
+ *
+ * When the footnote's first block is a paragraph (the overwhelmingly common
+ * case), the bookmark is folded into that paragraph's own children so
+ * nothing extra is visible. A footnote that instead opens with a list,
+ * table, etc. gets a small bookmark-only leading paragraph instead — an
+ * empty paragraph reads as a blank line, but only in that rarer shape, and
+ * only inside the footnote itself (never in the main body).
+ */
+export function renderFootnoteContent(blocks: BlockNode[], bookmarkId: string, ctx: RenderContext): Paragraph[] {
+  const [first, ...rest] = blocks;
+  const restRendered = renderBlocks(rest, ctx).filter((b): b is Paragraph => b instanceof Paragraph);
+
+  if (first?.type === "paragraph") {
+    const runs = renderInline(first.children, ctx);
+    const marked = new Paragraph({
+      style: undefined,
+      bidirectional: hasRtl(toPlainText(first.children)) || undefined,
+      children: [createBookmark(bookmarkId, [], ctx), ...runs],
+    });
+    return [marked, ...restRendered];
+  }
+
+  const marker = new Paragraph({ children: [createBookmark(bookmarkId, [], ctx)] });
+  const firstRendered = first ? renderBlocks([first], ctx).filter((b): b is Paragraph => b instanceof Paragraph) : [];
+  return [marker, ...firstRendered, ...restRendered];
+}
+
 function wrapBookmark(blockId: string | undefined, runs: InlineRun[], ctx: RenderContext): InlineRun[] {
   if (blockId && !ctx.bookmarks.has(blockId)) {
     ctx.bookmarks.add(blockId);
