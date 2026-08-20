@@ -212,11 +212,24 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * to the usable page width (A4, 1in margins each side — see the page
  * setup in src/docx/index.ts) so gridCol is realistic even though
  * w:tblW: 100% is what actually determines the rendered width in Word.
+ *
+ * Attempt 7: LibreOffice Writer rendered all four sides of the table as a
+ * rectangle despite explicit w:val="none" on top/left/right/inside —
+ * switching those to the spec-preferred "nil" (what Word itself emits for
+ * "no border") did not fix it either; LibreOffice still drew all four
+ * sides even with textbook-correct border XML.
+ *
+ * Attempt 8: border properties abandoned entirely for this element.
+ * Instead of any bottom border, the cell has NO border definitions at all
+ * and a solid w:shd (cell shading/fill) in the same gray, at a minimal row
+ * height — a different OOXML code path than table borders, which may not
+ * share whatever LibreOffice's border renderer is doing wrong. Works in
+ * Word/Pages/Google Docs (shading is a basic, universally-supported OOXML
+ * feature); not yet re-verified in LibreOffice.
  */
 const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
 
 function renderThematicBreak(): Table {
-  const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [FULL_WIDTH_TWIPS],
@@ -224,7 +237,7 @@ function renderThematicBreak(): Table {
       top: NO_BORDER,
       left: NO_BORDER,
       right: NO_BORDER,
-      bottom,
+      bottom: NO_BORDER,
       insideHorizontal: NO_BORDER,
       insideVertical: NO_BORDER,
     },
@@ -234,11 +247,12 @@ function renderThematicBreak(): Table {
         children: [
           new TableCell({
             margins: { top: 0, bottom: 0, left: 0, right: 0 },
-            borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom },
+            borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom: NO_BORDER },
+            shading: { type: ShadingType.CLEAR, fill: COLORS.tableBorder, color: "auto" },
             children: [
               new Paragraph({
                 spacing: { before: 0, after: 0 },
-                children: [new TextRun({ text: " ", size: 2 })],
+                children: [new TextRun({ text: "\u00A0", size: 2 })],
               }),
             ],
           }),

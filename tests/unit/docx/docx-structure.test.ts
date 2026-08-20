@@ -59,13 +59,17 @@ describe("DOCX structure (§9.3)", () => {
     expect(documentXml).toContain("w:lang");
   });
 
-  it("renders a horizontal rule as a single-cell table with only a bottom border (cross-app compatibility)", async () => {
-    // Three paragraph-border attempts (plain w:pBdr; + spacing/rPr size;
-    // + an explicit run, first empty then a non-breaking space) all rendered
-    // correctly in Word but were confirmed by manual test to leave the rule
-    // invisible in Apple Pages. Switched to the same single-cell-table
-    // pattern the codebase already uses for callouts/code blocks, which
-    // sidesteps paragraph-border rendering entirely.
+  it("renders a horizontal rule as a single-cell table with shading, not a border (cross-app compatibility)", async () => {
+    // Attempts 1-3 (paragraph w:pBdr, in various forms) rendered in Word but
+    // not Apple Pages. Attempts 4-5 (table w:tblBorders/w:tcBorders) fixed
+    // Pages but LibreOffice Writer rendered all four sides of the table as a
+    // rectangle despite explicit "none" (attempt 6 width fix aside).
+    // Attempt 7 switched "none" to the spec-preferred "nil" (what Word
+    // itself emits for "no border") — LibreOffice still drew all four
+    // sides even with textbook-correct border XML. Attempt 8 abandons
+    // border properties for this element entirely: no border definitions
+    // anywhere, and a solid cell shading (w:shd) in the same gray instead —
+    // a different OOXML code path than table borders.
     const { documentXml } = await renderToDocx("First paragraph.\n\n---\n\nSecond paragraph.");
     const doc = new DOMParser().parseFromString(documentXml, "application/xml");
 
@@ -77,56 +81,47 @@ describe("DOCX structure (§9.3)", () => {
     expect(table.getElementsByTagName("w:tr").length).toBe(1);
     expect(table.getElementsByTagName("w:tc").length).toBe(1);
 
-    // Table borders: only bottom is visible; top/left/right/inside are "nil".
-    // Attempt 7: LibreOffice Writer was observed rendering all four sides of
-    // this table despite explicit w:val="none" on top/left/right/inside —
-    // "nil" (what Word itself emits for "no border") is the more broadly
-    // compatible OOXML value for the same "no border" semantic.
+    // No border is visible anywhere — every side, at both table and cell
+    // level, is "nil".
     const tblBorders = table.getElementsByTagName("w:tblBorders");
     expect(tblBorders.length).toBe(1);
-    const bottom = tblBorders[0].getElementsByTagName("w:bottom")[0];
-    expect(bottom.getAttribute("w:val")).toBe("single");
-    for (const side of ["w:top", "w:left", "w:right", "w:insideH", "w:insideV"]) {
-      const el = tblBorders[0].getElementsByTagName(side)[0];
-      expect(el.getAttribute("w:val")).toBe("nil");
+    const cell = table.getElementsByTagName("w:tc")[0];
+    const tcBorders = cell.getElementsByTagName("w:tcBorders");
+    expect(tcBorders.length).toBe(1);
+    for (const borders of [tblBorders[0], tcBorders[0]]) {
+      for (const side of ["w:top", "w:left", "w:right", "w:bottom"]) {
+        const el = borders.getElementsByTagName(side)[0];
+        if (el) expect(el.getAttribute("w:val")).toBe("nil");
+      }
     }
+
+    // The visible line comes from cell shading instead: a solid fill in the
+    // same gray previously used for the border color.
+    const shd = cell.getElementsByTagName("w:shd")[0];
+    expect(shd).toBeDefined();
+    expect(shd.getAttribute("w:val")).toBe("clear");
+    expect(shd.getAttribute("w:fill")).toBe("CCCCCC");
 
     // Full body-text width, matching the other single-cell tables in this file.
     expect(documentXml).toContain('w:tblW w:type="pct" w:w="100%"');
 
-    // Attempt 4 defined the border only at table level, relying on Word-style
-    // inheritance down to the cell — Pages may not replicate that. Attempt 5
-    // mirrors the same bottom border at cell level too (belt and suspenders,
-    // no reliance on inheritance).
-    const cell = table.getElementsByTagName("w:tc")[0];
-    const tcBorders = cell.getElementsByTagName("w:tcBorders");
-    expect(tcBorders.length).toBe(1);
-    const cellBottom = tcBorders[0].getElementsByTagName("w:bottom")[0];
-    expect(cellBottom.getAttribute("w:val")).toBe("single");
-    expect(cellBottom.getAttribute("w:color")).toBe("CCCCCC");
-
-    // The cell paragraph must carry a real, non-empty run — an empty cell
-    // paragraph (attempt 4) risks the same zero-height collapse as the very
-    // first paragraph-only attempt, just nested inside a cell.
+    // The cell paragraph must carry a real, non-empty run so the cell can't
+    // collapse to zero height (attempt 4/5's lesson still applies here).
     const cellPara = cell.getElementsByTagName("w:p")[0];
     const runs = cellPara.getElementsByTagName("w:r");
     expect(runs.length).toBe(1);
     const text = runs[0].getElementsByTagName("w:t")[0];
-    expect(text.textContent).toBe(" ");
+    expect(text.textContent).toBe("\u00A0");
 
     // The row has an explicit minimum height, so the cell can't collapse
     // regardless of how an importer infers height from content.
     const trHeight = table.getElementsByTagName("w:trHeight")[0];
     expect(trHeight.getAttribute("w:hRule")).toBe("atLeast");
 
-    // Attempt 6: docx defaults w:tblGrid/w:gridCol to 100 twips (~0.07in)
-    // per column when columnWidths isn't set explicitly. Word treats that as
-    // a soft hint and defers to w:tblW: 100%, but Pages was observed sizing
-    // the rendered rule from gridCol literally, producing a ~15-20px line
-    // instead of the full text column. gridCol must reflect a realistic
-    // full-width value, not the tiny default.
+    // gridCol must reflect a realistic full-width value, not docx's tiny
+    // 100-twip default (attempt 6).
     const gridCol = table.getElementsByTagName("w:gridCol")[0];
     const width = Number(gridCol.getAttribute("w:w"));
-    expect(width).toBeGreaterThan(5000); // nowhere near the 100-twip default
+    expect(width).toBeGreaterThan(5000);
   });
 });
