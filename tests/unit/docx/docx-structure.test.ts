@@ -78,5 +78,13 @@ describe("DOCX structure (§9.3)", () => {
     const rPr = rulePPr.getElementsByTagName("w:rPr");
     expect(rPr.length).toBe(1);
     expect(rPr[0].getElementsByTagName("w:sz").length).toBe(1);
+
+    // The rule paragraph must carry an actual <w:r> run (not just
+    // paragraph-mark rPr) — spacing + rPr alone were not enough to make
+    // Apple Pages draw the border (verified by manual test; attempt 2).
+    const rulePara = rulePPr.parentNode as Element;
+    expect(rulePara.tagName).toBe("w:p");
+    const runs = Array.from(rulePara.childNodes).filter((n) => (n as Element).tagName === "w:r");
+    expect(runs.length).toBe(1);
   });
 });

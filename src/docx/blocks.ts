@@ -107,19 +107,19 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     case "thematicBreak":
       // A paragraph-level w:pBdr/w:bottom border (the standard OOXML rule
       // construct — also what docx's own `thematicBreak: true` shorthand
-      // generates) draws in Word either way, but an otherwise-empty
-      // paragraph with no run gives some importers (observed: Apple Pages)
-      // nothing to size the paragraph's line height against, so the border
-      // has no space to render in and the rule silently disappears. An
-      // explicit paragraph-mark run size (matching the body font) plus
-      // explicit before/after spacing guarantees the paragraph has real
-      // height regardless of how an importer infers it from content.
+      // generates) draws in Word either way. Spacing + a paragraph-mark rPr
+      // size alone were NOT enough to make Apple Pages draw it (verified by
+      // manual test): the rule stayed invisible. Attempt 2: give the
+      // paragraph an actual <w:r> run — an empty text run — in addition to
+      // those, since some importers apparently need real run content present
+      // in the paragraph, not just paragraph-mark properties, to render a
+      // paragraph-level border at all.
       return [
         new Paragraph({
           border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder, space: 1 } },
           spacing: { before: 120, after: 120 },
           run: { size: 22 },
-          children: [],
+          children: [new TextRun({ text: "", size: 22 })],
         }),
       ];
     case "imageBlock":
