@@ -239,6 +239,33 @@ export function calloutColor(type: string): string {
   return CALLOUT_COLORS[key];
 }
 
+// ---- Callout icons ----
+//
+// A deliberate deviation from TECH_SPEC.md's original §4.4, which explicitly
+// excluded icons from DOCX rendering — updated alongside this. Plain Unicode
+// symbols only, no colour emoji: none of these characters fall in the
+// emoji-presentation Unicode ranges, so Word/Pages/LibreOffice/Google Docs
+// all draw them as ordinary monochrome glyphs in the document font rather
+// than switching to a colour emoji font, keeping them visually consistent
+// with the existing plain colour-block style. Grouped the same way as
+// CALLOUT_COLORS (8 groups) rather than matching Obsidian's finer per-type
+// icon set 1:1, for consistency with the colour grouping already used here.
+const CALLOUT_ICONS: Record<keyof typeof CALLOUT_COLORS, string> = {
+  note: "✎", // pencil
+  tip: "✦", // no broadly-supported monochrome "flame" glyph exists in the BMP; closest safe substitute
+  success: "✓", // check mark
+  question: "?",
+  warning: "⚠", // warning triangle
+  danger: "⚡", // lightning bolt
+  example: "☰", // list
+  quote: "❝", // quotation mark
+};
+
+export function calloutIcon(type: string): string {
+  const key = CALLOUT_ALIASES[type] ?? "note";
+  return CALLOUT_ICONS[key];
+}
+
 /** A light tint of a callout colour for the cell background (§4.4). */
 export function tint(hex: string): string {
   const factor = 0.88; // 88% toward white

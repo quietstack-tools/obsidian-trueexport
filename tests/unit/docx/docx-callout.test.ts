@@ -39,4 +39,38 @@ describe("DOCX callouts", () => {
     expect(documentXml).toContain('w:color="E93147"'); // danger
     expect(documentXml).toContain("Inner");
   });
+
+  it("prepends a plain-Unicode icon to the title, matching the callout's colour group", async () => {
+    // Icons are a deliberate deviation from TECH_SPEC.md's original §4.4
+    // (updated alongside this) — grouped the same 8 ways as calloutColor().
+    // The icon is its own run (so it can carry the accent colour separately
+    // from the title's default text colour), so it's a distinct <w:t> just
+    // before the title text rather than part of the same run.
+    const note = await renderToDocx("> [!note] Heads Up\n> b");
+    expect(note.documentXml).toContain(">✎ <");
+    expect(note.documentXml).toContain("Heads Up");
+
+    const warning = await renderToDocx("> [!warning] Careful\n> b");
+    expect(warning.documentXml).toContain(">⚠ <");
+    expect(warning.documentXml).toContain("Careful");
+
+    const danger = await renderToDocx("> [!danger] Watch Out\n> b");
+    expect(danger.documentXml).toContain(">⚡ <");
+    expect(danger.documentXml).toContain("Watch Out");
+  });
+
+  it("uses the note icon (✎) as the default for unknown callout types", async () => {
+    const { documentXml } = await renderToDocx("> [!nonsense] X\n> b");
+    expect(documentXml).toContain(">✎ <");
+  });
+
+  it("adds after-spacing following a callout table, same as thematicBreak (§4.4 tables carry no OOXML spacing-after)", async () => {
+    const { documentXml } = await renderToDocx("> [!note] Heads Up\n> body\n\nAfter.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const table = doc.getElementsByTagName("w:tbl")[0];
+    const spacer = table.nextElementSibling as Element;
+    expect(spacer.tagName).toBe("w:p");
+    const spacing = spacer.getElementsByTagName("w:spacing")[0];
+    expect(spacing.getAttribute("w:after")).toBe("120");
+  });
 });

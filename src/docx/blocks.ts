@@ -33,7 +33,7 @@ import { latexToMath } from "./math";
 import { renderTable } from "./table";
 import { toPlainText } from "../core/parser/inline";
 import { hasRtl } from "../core/util/text";
-import { COLORS, CODE_FONT, RUN_LANGUAGE, calloutColor, tint } from "./styles";
+import { COLORS, CODE_FONT, RUN_LANGUAGE, calloutColor, calloutIcon, tint } from "./styles";
 import type { RenderContext } from "./context";
 
 type Rendered = Paragraph | Table;
@@ -100,9 +100,9 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     case "table":
       return [renderTable(block, ctx)];
     case "callout":
-      return [renderCallout(block, ctx)];
+      return renderCallout(block, ctx);
     case "codeBlock":
-      return [renderCodeBlock(block, ctx)];
+      return renderCodeBlock(block, ctx);
     case "blockquote":
       return renderBlocks(block.children, ctx, { quote: true, depth: opts.depth });
     case "thematicBreak":
@@ -227,7 +227,21 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * themselves.
  */
 const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
-const RULE_SPACING_TWIPS = 120; // Matches the original paragraph-based rule's before/after spacing.
+// Matches the original paragraph-based rule's before/after spacing. Also
+// used for callout/code-block tables below — none of docx's Table types
+// carry an OOXML "spacing after" property, so every single-cell table in
+// this file needs the same invisible-spacer-paragraph treatment to get
+// after-spacing at all (see tableSpacer()).
+const TABLE_AFTER_SPACING_TWIPS = 120;
+
+/**
+ * An invisible paragraph (no border, no visible content) that exists only to
+ * carry w:spacing w:after — the standard OOXML way to add space after a
+ * table, since Table itself has no equivalent property.
+ */
+function tableSpacer(afterTwips: number = TABLE_AFTER_SPACING_TWIPS): Paragraph {
+  return new Paragraph({ spacing: { before: 0, after: afterTwips }, children: [] });
+}
 
 function renderThematicBreak(): Rendered[] {
   const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
@@ -252,7 +266,7 @@ function renderThematicBreak(): Rendered[] {
             children: [
               new Paragraph({
                 spacing: { before: 0, after: 0 },
-                children: [new TextRun({ text: " ", size: 2 })],
+                children: [new TextRun({ text: "\u00A0", size: 2 })],
               }),
             ],
           }),
@@ -261,24 +275,30 @@ function renderThematicBreak(): Rendered[] {
     ],
   });
 
-  const spacer = new Paragraph({
-    spacing: { before: 0, after: RULE_SPACING_TWIPS },
-    children: [],
-  });
-
-  return [table, spacer];
+  return [table, tableSpacer()];
 }
 
-function renderCallout(node: CalloutNode, ctx: RenderContext): Table {
+/**
+ * Callouts and code blocks are single-cell tables (see the file header
+ * comment), which means they share the thematicBreak table's "no OOXML
+ * spacing-after property" gap: rendered flush against whatever follows,
+ * with no equivalent of the visible gap Obsidian's own editor shows between
+ * adjacent callouts. Both get the same tableSpacer() fix.
+ */
+function renderCallout(node: CalloutNode, ctx: RenderContext): Rendered[] {
   const color = calloutColor(node.calloutType);
+  const icon = calloutIcon(node.calloutType);
   const background = tint(color);
   const title = new Paragraph({
     spacing: { after: 60 },
-    children: renderInline(node.title, ctx, { bold: true }),
+    children: [
+      new TextRun({ text: `${icon} `, bold: true, color, language: RUN_LANGUAGE }),
+      ...renderInline(node.title, ctx, { bold: true }),
+    ],
   });
   const body = renderBlocks(node.children, ctx, {});
 
-  return new Table({
+  const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
       top: NO_BORDER,
@@ -300,9 +320,11 @@ function renderCallout(node: CalloutNode, ctx: RenderContext): Table {
       }),
     ],
   });
+
+  return [table, tableSpacer()];
 }
 
-function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Table {
+function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Rendered[] {
   const lines = node.content.length > 0 ? node.content.split("\n") : [""];
   const paragraphs = lines.map(
     (line) =>
@@ -320,7 +342,7 @@ function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Table {
       }),
   );
 
-  return new Table({
+  const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
       top: NO_BORDER,
@@ -342,6 +364,8 @@ function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Table {
       }),
     ],
   });
+
+  return [table, tableSpacer()];
 }
 
 function renderImageBlock(node: ImageBlockNode, ctx: RenderContext): Paragraph[] {

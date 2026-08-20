@@ -145,4 +145,14 @@ describe("DOCX structure (§9.3)", () => {
     // The spacer carries no run — it exists purely for spacing, not content.
     expect(spacer.getElementsByTagName("w:r").length).toBe(0);
   });
+
+  it("adds after-spacing following a code-block table (same table-spacing gap as thematicBreak/callouts)", async () => {
+    const { documentXml } = await renderToDocx("```\ncode\n```\n\nAfter.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const table = doc.getElementsByTagName("w:tbl")[0];
+    const spacer = table.nextElementSibling as Element;
+    expect(spacer.tagName).toBe("w:p");
+    const spacing = spacer.getElementsByTagName("w:spacing")[0];
+    expect(spacing.getAttribute("w:after")).toBe("120");
+  });
 });
