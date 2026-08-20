@@ -84,7 +84,15 @@ describe("DOCX structure (§9.3)", () => {
     // Apple Pages draw the border (verified by manual test; attempt 2).
     const rulePara = rulePPr.parentNode as Element;
     expect(rulePara.tagName).toBe("w:p");
-    const runs = Array.from(rulePara.childNodes).filter((n) => (n as Element).tagName === "w:r");
+    const runs = Array.from(rulePara.childNodes).filter((n): n is Element => (n as Element).tagName === "w:r");
     expect(runs.length).toBe(1);
+
+    // The run's text must be genuinely non-empty — a self-closing
+    // <w:t xml:space="preserve"/> (empty string) was still not enough
+    // (attempt 2, confirmed by inspecting the generated XML). A non-breaking
+    // space gives the <w:t> real content that can't be whitespace-collapsed.
+    const text = runs[0].getElementsByTagName("w:t")[0];
+    expect(text.textContent).toBe(" ");
+    expect(text.getAttribute("xml:space")).toBe("preserve");
   });
 });

@@ -108,18 +108,19 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
       // A paragraph-level w:pBdr/w:bottom border (the standard OOXML rule
       // construct — also what docx's own `thematicBreak: true` shorthand
       // generates) draws in Word either way. Spacing + a paragraph-mark rPr
-      // size alone were NOT enough to make Apple Pages draw it (verified by
-      // manual test): the rule stayed invisible. Attempt 2: give the
-      // paragraph an actual <w:r> run — an empty text run — in addition to
-      // those, since some importers apparently need real run content present
-      // in the paragraph, not just paragraph-mark properties, to render a
-      // paragraph-level border at all.
+      // size alone were NOT enough to make Apple Pages draw it (attempt 1,
+      // verified by manual test). Neither was an empty-string run (attempt
+      // 2): inspecting the generated XML showed `<w:t xml:space="preserve"/>`
+      // — a self-closing, genuinely empty text element — which some
+      // importers may still treat as no content despite the run wrapper
+      // being present. Attempt 3: use a single non-breaking space (U+00A0)
+      // so `<w:t>` has real, non-whitespace-collapsible content.
       return [
         new Paragraph({
           border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder, space: 1 } },
           spacing: { before: 120, after: 120 },
           run: { size: 22 },
-          children: [new TextRun({ text: "", size: 22 })],
+          children: [new TextRun({ text: "\u00A0", size: 22 })],
         }),
       ];
     case "imageBlock":
