@@ -52,15 +52,7 @@ const HEADING_LEVELS = [
   HeadingLevel.HEADING_6,
 ];
 
-// OOXML (ECMA-376 ST_Border) has two "no border" values: "nil" and "none".
-// They're both spec-legal, but "nil" is what Word itself actually emits when
-// you turn a border off in the UI, and "none" is the less-travelled path —
-// LibreOffice Writer was observed rendering all four sides of the
-// thematicBreak table (attempt 7) despite explicit w:val="none" on
-// top/left/right/insideH/insideV, a known category of interop inconsistency
-// with that value. "nil" is the more broadly-supported choice, so it's used
-// everywhere "no border" is meant here (callouts, code blocks, thematicBreak).
-const NO_BORDER = { style: BorderStyle.NIL, size: 0, color: "auto" };
+const NO_BORDER = { style: BorderStyle.NONE, size: 0, color: "auto" };
 
 export function renderBlocks(blocks: BlockNode[], ctx: RenderContext, opts: BlockOpts = {}): Rendered[] {
   const out: Rendered[] = [];
@@ -213,23 +205,20 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * setup in src/docx/index.ts) so gridCol is realistic even though
  * w:tblW: 100% is what actually determines the rendered width in Word.
  *
- * Attempt 7: LibreOffice Writer rendered all four sides of the table as a
- * rectangle despite explicit w:val="none" on top/left/right/inside —
- * switching those to the spec-preferred "nil" (what Word itself emits for
- * "no border") did not fix it either; LibreOffice still drew all four
- * sides even with textbook-correct border XML.
- *
- * Attempt 8: border properties abandoned entirely for this element.
- * Instead of any bottom border, the cell has NO border definitions at all
- * and a solid w:shd (cell shading/fill) in the same gray, at a minimal row
- * height — a different OOXML code path than table borders, which may not
- * share whatever LibreOffice's border renderer is doing wrong. Works in
- * Word/Pages/Google Docs (shading is a basic, universally-supported OOXML
- * feature); not yet re-verified in LibreOffice.
+ * Known limitation (as of attempt 6, confirmed by manual testing): renders
+ * as a full rectangle (all four borders visible) in LibreOffice Writer,
+ * despite spec-correct w:val=nil/none border suppression that works
+ * correctly in Word, Pages, and Google Docs. Attempted fixes: nil vs none
+ * border values (attempt 7), cell shading instead of borders (attempt 8) —
+ * neither improved on this without regressing other renderers (attempt 8
+ * turned the rule into a thick gray bar in both LibreOffice AND Pages).
+ * Accepted as a known LibreOffice-specific limitation, lowest priority
+ * among the four target renderers.
  */
 const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
 
 function renderThematicBreak(): Table {
+  const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [FULL_WIDTH_TWIPS],
@@ -237,7 +226,7 @@ function renderThematicBreak(): Table {
       top: NO_BORDER,
       left: NO_BORDER,
       right: NO_BORDER,
-      bottom: NO_BORDER,
+      bottom,
       insideHorizontal: NO_BORDER,
       insideVertical: NO_BORDER,
     },
@@ -247,12 +236,11 @@ function renderThematicBreak(): Table {
         children: [
           new TableCell({
             margins: { top: 0, bottom: 0, left: 0, right: 0 },
-            borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom: NO_BORDER },
-            shading: { type: ShadingType.CLEAR, fill: COLORS.tableBorder, color: "auto" },
+            borders: { top: NO_BORDER, left: NO_BORDER, right: NO_BORDER, bottom },
             children: [
               new Paragraph({
                 spacing: { before: 0, after: 0 },
-                children: [new TextRun({ text: "\u00A0", size: 2 })],
+                children: [new TextRun({ text: " ", size: 2 })],
               }),
             ],
           }),
