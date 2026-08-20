@@ -127,7 +127,13 @@ export function renderInline(nodes: InlineNode[], ctx: RenderContext, fmt: Fmt =
         if (n.assignedNumber !== undefined) out.push(new FootnoteReferenceRun(n.assignedNumber));
         break;
       case "lineBreak":
-        out.push(n.hard ? new TextRun({ break: 1, language: RUN_LANGUAGE }) : textRun(" ", fmt));
+        // Obsidian's default (non-strict-line-breaks) editor renders a
+        // single newline within a paragraph as a real visual line break,
+        // not a collapsed space — so both hard (trailing "  " or "\")
+        // and soft (plain newline) breaks get a w:br here. `n.hard` still
+        // distinguishes them in the IDM for renderers that follow strict
+        // CommonMark (see html/index.ts), just not this one.
+        out.push(new TextRun({ break: 1, language: RUN_LANGUAGE }));
         break;
       case "mathInline":
         try {

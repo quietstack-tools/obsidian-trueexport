@@ -155,4 +155,41 @@ describe("DOCX structure (§9.3)", () => {
     const spacing = spacer.getElementsByTagName("w:spacing")[0];
     expect(spacing.getAttribute("w:after")).toBe("120");
   });
+
+  it("renders a soft line break (single newline, no blank line) as a real w:br, not a collapsed space", async () => {
+    // Obsidian's default (non-strict-line-breaks) editor treats a plain
+    // newline within a paragraph as a visual line break, same as an
+    // explicit hard break (trailing "  " or "\") — both must produce a
+    // w:br in DOCX. Previously only the hard case did; a soft break
+    // rendered as a single joining space, running distinct source lines
+    // together into one line of text.
+    const four = "Plain: one\nAliased: two\nSection: three\nBroken: four";
+    const { documentXml } = await renderToDocx(four);
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+
+    // Exactly one paragraph (no blank lines in the source → still one w:p).
+    const paragraphs = doc.getElementsByTagName("w:p");
+    expect(paragraphs.length).toBe(1);
+
+    // Three line breaks between four lines.
+    const breaks = paragraphs[0].getElementsByTagName("w:br");
+    expect(breaks.length).toBe(3);
+
+    // No line's text got merged with its neighbour via a plain space.
+    expect(documentXml).not.toContain("one Aliased");
+    expect(documentXml).not.toContain("two Section");
+    expect(documentXml).not.toContain("three Broken");
+    expect(documentXml).toContain("Plain: one");
+    expect(documentXml).toContain("Aliased: two");
+    expect(documentXml).toContain("Section: three");
+    expect(documentXml).toContain("Broken: four");
+  });
+
+  it("renders an explicit hard break (trailing two spaces) as a w:br too", async () => {
+    const { documentXml } = await renderToDocx("first line  \nsecond line");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = doc.getElementsByTagName("w:p");
+    expect(paragraphs.length).toBe(1);
+    expect(paragraphs[0].getElementsByTagName("w:br").length).toBe(1);
+  });
 });
