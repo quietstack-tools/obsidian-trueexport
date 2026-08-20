@@ -194,11 +194,24 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * BOTH table and cell level (belt and suspenders — no reliance on
  * inheritance), the cell paragraph carries a real non-breaking-space run,
  * and the row has an explicit minimum height so the cell can't collapse.
+ *
+ * Attempt 6: the table rendered in Pages for the first time, but at only
+ * ~15-20px wide instead of the full text column. docx's `Table` defaults
+ * `columnWidths` (the w:tblGrid/w:gridCol value) to 100 twips (~0.07in)
+ * per column when not given explicitly — Word treats that as a soft hint
+ * and defers to the w:tblW percentage, but Pages appears to size the
+ * column from gridCol literally. `columnWidths` is set explicitly below
+ * to the usable page width (A4, 1in margins each side — see the page
+ * setup in src/docx/index.ts) so gridCol is realistic even though
+ * w:tblW: 100% is what actually determines the rendered width in Word.
  */
+const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
+
 function renderThematicBreak(): Table {
   const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: [FULL_WIDTH_TWIPS],
     borders: {
       top: NO_BORDER,
       left: NO_BORDER,

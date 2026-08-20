@@ -114,5 +114,15 @@ describe("DOCX structure (§9.3)", () => {
     // regardless of how an importer infers height from content.
     const trHeight = table.getElementsByTagName("w:trHeight")[0];
     expect(trHeight.getAttribute("w:hRule")).toBe("atLeast");
+
+    // Attempt 6: docx defaults w:tblGrid/w:gridCol to 100 twips (~0.07in)
+    // per column when columnWidths isn't set explicitly. Word treats that as
+    // a soft hint and defers to w:tblW: 100%, but Pages was observed sizing
+    // the rendered rule from gridCol literally, producing a ~15-20px line
+    // instead of the full text column. gridCol must reflect a realistic
+    // full-width value, not the tiny default.
+    const gridCol = table.getElementsByTagName("w:gridCol")[0];
+    const width = Number(gridCol.getAttribute("w:w"));
+    expect(width).toBeGreaterThan(5000); // nowhere near the 100-twip default
   });
 });
