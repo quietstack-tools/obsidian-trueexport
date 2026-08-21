@@ -31,6 +31,26 @@ describe("DOCX content", () => {
     expect(documentXml).toContain("[Image not found: missing.png]");
   });
 
+  it("caps an unresized image to the page's usable height, not just its width", async () => {
+    // Same bug as image.test.ts's unit-level coverage, exercised through the
+    // real render pipeline end to end: a large, normally-proportioned image
+    // (3000x6500) previously only had its width capped, leaving it far
+    // taller than a single Letter page (6.5"w x 14.06"h against ~11" tall).
+    const buf = new ArrayBuffer(24);
+    new DataView(buf).setUint32(16, 3000);
+    new DataView(buf).setUint32(20, 6500);
+    const { documentXml } = await renderToDocx("![big](big.png)", {
+      binaries: { "big.png": buf },
+      options: { pageSize: "Letter", orientation: "portrait" },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const extent = doc.getElementsByTagName("wp:extent")[0];
+    expect(extent).toBeDefined();
+    const cyEmu = Number(extent.getAttribute("cy")); // EMUs: 914400 per inch
+    const heightIn = cyEmu / 914400;
+    expect(heightIn).toBeLessThanOrEqual(9); // Letter's ~9in usable height, not the unclamped ~14.06in
+  });
+
   it("rasterises SVG via the injected dep instead of a placeholder", async () => {
     const { documentXml, entries } = await renderToDocx(
       "![vec](drawing.svg)",

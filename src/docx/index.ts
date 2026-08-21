@@ -13,12 +13,13 @@ import { Document, Packer, Paragraph, PageOrientation } from "docx";
 import type { IdmDocument } from "../core/model/document";
 import type { MediaResource } from "../core/model/nodes";
 import type { BlockNode, InlineNode } from "../core/model/nodes";
-import type { ExportOptions, PageSize } from "../core/options";
+import type { ExportOptions } from "../core/options";
 import type { WarningCollector } from "../core/warnings";
 import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
 import { renderBlocks, renderFrontmatterTable, renderFootnoteContent } from "./blocks";
 import { sanitizeAnchor } from "./inline";
+import { PAGE_SIZES_TWIPS } from "./image";
 import type { DocxDeps, RenderContext } from "./context";
 import type { ReferenceStyles } from "./reference-styles";
 
@@ -43,12 +44,6 @@ export interface DocxRenderOptions {
 }
 
 const FREE_ATTRIBUTION = "(exported with TrueExport — quietstack.tools)";
-
-const PAGE_SIZES: Record<PageSize, { w: number; h: number }> = {
-  A4: { w: 11906, h: 16838 },
-  Letter: { w: 12240, h: 15840 },
-  Legal: { w: 12240, h: 20160 },
-};
 
 export async function renderDocx(
   doc: IdmDocument,
@@ -134,7 +129,7 @@ function documentDescription(doc: IdmDocument, options: ExportOptions, pro: bool
 }
 
 function pageProperties(options: ExportOptions) {
-  const size = PAGE_SIZES[options.pageSize] ?? PAGE_SIZES.A4;
+  const size = PAGE_SIZES_TWIPS[options.pageSize] ?? PAGE_SIZES_TWIPS.A4;
   const landscape = options.orientation === "landscape";
   return {
     page: {

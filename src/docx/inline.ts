@@ -29,7 +29,7 @@ import type {
 import { slugify } from "../core/util/slug";
 import { safeExternalUrl } from "../core/util/url";
 import { RUN_LANGUAGE } from "./styles";
-import { imageType, displaySize } from "./image";
+import { imageType, displaySize, contentHeightPx } from "./image";
 import type { RenderContext } from "./context";
 
 export type InlineRun =
@@ -198,7 +198,7 @@ function textRun(text: string, fmt: Fmt): TextRun {
 /** Build an ImageRun, or a text placeholder when the image can't be embedded. */
 export function buildImage(
   node: InlineImageNode | ImageBlockNode,
-  _ctx: RenderContext,
+  ctx: RenderContext,
 ): ImageRun | { placeholder: string } {
   const res = node.resource;
   const name = basename(res.originalPath);
@@ -208,7 +208,14 @@ export function buildImage(
   // An SVG that reached here was not rasterised (no rasteriser injected).
   if (res.mimeType === "image/svg+xml") return { placeholder: `[SVG image: ${name}]` };
 
-  const size = displaySize(res.data, res.mimeType, node.width, node.height);
+  // A normal, unresized image previously only had its width capped to the
+  // content width — its height scaled proportionally with no ceiling, so a
+  // large-but-normally-proportioned image (e.g. 3000×6500px) could overflow
+  // well past a single page's height in Word. maxHeightPx applies only to
+  // that fully-automatic case (see displaySize()'s doc comment) — an
+  // explicit |width resize is left as the user's deliberate choice.
+  const maxHeightPx = contentHeightPx(ctx.options.pageSize, ctx.options.orientation);
+  const size = displaySize(res.data, res.mimeType, node.width, node.height, maxHeightPx);
   // SVG was handled above, so the type here is always a raster format.
   const type = imageType(res.mimeType) as "png" | "jpg" | "gif" | "bmp";
   return new ImageRun({ type, data: new Uint8Array(res.data), transformation: size });

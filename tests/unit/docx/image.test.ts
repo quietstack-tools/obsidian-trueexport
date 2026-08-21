@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { imageDimensions, displaySize, imageType, CONTENT_WIDTH_PX } from "../../../src/docx/image";
+import {
+  imageDimensions,
+  displaySize,
+  imageType,
+  CONTENT_WIDTH_PX,
+  contentHeightPx,
+} from "../../../src/docx/image";
 
 function pngHeader(w: number, h: number): ArrayBuffer {
   const buf = new ArrayBuffer(24);
@@ -67,5 +73,62 @@ describe("displaySize", () => {
 
   it("falls back to a default when dimensions are unknown", () => {
     expect(displaySize(new ArrayBuffer(2), undefined)).toEqual({ width: 400, height: 300 });
+  });
+
+  it("caps a normal-proportioned but very tall unresized image to both the width AND height ceilings", () => {
+    // 3000x6500 is normal-ish proportions (not a resize), just large enough
+    // that width-only capping still leaves it far taller than a page —
+    // the bug: 6.5"w x 14.06"h against an ~11" tall Letter page.
+    const maxHeight = contentHeightPx("Letter", "portrait");
+    const size = displaySize(pngHeader(3000, 6500), "image/png", undefined, undefined, maxHeight);
+    expect(size.height).toBeLessThanOrEqual(maxHeight);
+    expect(size.width).toBeLessThanOrEqual(CONTENT_WIDTH_PX);
+    // Aspect ratio preserved (within rounding).
+    expect(size.width / size.height).toBeCloseTo(3000 / 6500, 2);
+  });
+
+  it("does not shrink an image that already fits within both caps", () => {
+    const maxHeight = contentHeightPx("Letter", "portrait");
+    const size = displaySize(pngHeader(200, 100), "image/png", undefined, undefined, maxHeight);
+    expect(size).toEqual({ width: 200, height: 100 });
+  });
+
+  it("leaves an explicit |width resize alone even if the result is tall relative to the page", () => {
+    // Deliberate user choice — see displaySize()'s doc comment for why this
+    // differs from the fully-automatic case.
+    const maxHeight = contentHeightPx("Letter", "portrait");
+    const size = displaySize(pngHeader(100, 5000), "image/png", 100, undefined, maxHeight);
+    expect(size).toEqual({ width: 100, height: 5000 });
+    expect(size.height).toBeGreaterThan(maxHeight);
+  });
+
+  it("leaves an explicit width+height resize alone too", () => {
+    const maxHeight = contentHeightPx("Letter", "portrait");
+    const size = displaySize(pngHeader(100, 100), "image/png", 50, 5000, maxHeight);
+    expect(size).toEqual({ width: 50, height: 5000 });
+  });
+});
+
+describe("contentHeightPx", () => {
+  it("computes usable page height in px (page height minus 1in top+bottom margins, at 96 DPI)", () => {
+    // Letter: 15840 twips tall, minus 2*1440 margin = 12960 twips = 9in = 864px.
+    expect(contentHeightPx("Letter", "portrait")).toBe(864);
+  });
+
+  it("swaps to the page WIDTH as the height ceiling in landscape orientation", () => {
+    // Letter landscape means an 11"x8.5" page — the usable HEIGHT ceiling
+    // comes from the page's twips WIDTH (12240 = 8.5in), not its twips
+    // height, so it's smaller than the portrait ceiling (11in tall page).
+    const portrait = contentHeightPx("Letter", "portrait");
+    const landscape = contentHeightPx("Letter", "landscape");
+    expect(landscape).not.toBe(portrait);
+    expect(landscape).toBeLessThan(portrait);
+  });
+
+  it("differs by page size (A4 vs Letter vs Legal), not a hardcoded assumption", () => {
+    const a4 = contentHeightPx("A4", "portrait");
+    const letter = contentHeightPx("Letter", "portrait");
+    const legal = contentHeightPx("Legal", "portrait");
+    expect(new Set([a4, letter, legal]).size).toBe(3);
   });
 });

@@ -3,12 +3,36 @@
 // Image helpers for the DOCX renderer: map a MIME type to the `docx` ImageRun
 // type, and read a raster image's intrinsic pixel dimensions from its header
 // (so images without an explicit size can be embedded at a sensible size and
-// capped to the content width). SVG is handled upstream by rasterisation.
+// capped to the content width/height). SVG is handled upstream by
+// rasterisation.
+
+import type { Orientation, PageSize } from "../core/options";
 
 export type DocxImageType = "png" | "jpg" | "gif" | "bmp" | "svg";
 
 /** Content width at default 1" margins on A4/Letter, in px at 96 DPI (6.5"). */
 export const CONTENT_WIDTH_PX = 624;
+
+/**
+ * Page dimensions in twips, at 1" margins — the single source of truth for
+ * both the actual page setup (src/docx/index.ts imports this) and the
+ * content-height cap below, so the two can never drift apart.
+ */
+export const PAGE_SIZES_TWIPS: Record<PageSize, { w: number; h: number }> = {
+  A4: { w: 11906, h: 16838 },
+  Letter: { w: 12240, h: 15840 },
+  Legal: { w: 12240, h: 20160 },
+};
+
+const MARGIN_TWIPS = 1440; // 1 inch, matching pageProperties() in index.ts.
+const TWIPS_PER_PX = 15; // 1440 twips/in ÷ 96 px/in.
+
+/** Usable page height in px at 96 DPI, after margins — the height ceiling for an unresized image. */
+export function contentHeightPx(pageSize: PageSize, orientation: Orientation): number {
+  const size = PAGE_SIZES_TWIPS[pageSize] ?? PAGE_SIZES_TWIPS.A4;
+  const heightTwips = orientation === "landscape" ? size.w : size.h;
+  return Math.round((heightTwips - MARGIN_TWIPS * 2) / TWIPS_PER_PX);
+}
 
 export function imageType(mimeType: string | undefined): DocxImageType {
   switch (mimeType) {
@@ -85,12 +109,26 @@ function jpegSize(view: DataView): Dimensions | null {
   return null;
 }
 
-/** Final display size in px, honouring explicit sizes and the content cap. */
+/**
+ * Final display size in px, honouring explicit sizes and the content caps.
+ *
+ * `maxHeightPx` (the page's usable height after margins) only constrains the
+ * fully-automatic case — no `|width` and no explicit height in the source.
+ * An explicit `|width` (or `|widthxheight`) resize is a deliberate user
+ * choice and is left alone even if the result is tall relative to remaining
+ * page space: the bug this fixes is that a normal, UNRESIZED image could
+ * overflow a page with no way for the user to know why, which doesn't apply
+ * once they've already picked a size themselves. Word also still paginates
+ * a too-tall image across a page break rather than clipping it, unlike the
+ * unresized case's silent bottom cut-off, so an explicit resize overflowing
+ * is recoverable in a way the original bug wasn't.
+ */
 export function displaySize(
   data: ArrayBuffer,
   mimeType: string | undefined,
   width?: number,
   height?: number,
+  maxHeightPx?: number,
 ): Dimensions {
   const intrinsic = imageDimensions(data, mimeType);
 
@@ -100,11 +138,14 @@ export function displaySize(
     return { width, height: Math.round(width * ratio) };
   }
   if (intrinsic) {
-    if (intrinsic.width > CONTENT_WIDTH_PX) {
-      const ratio = intrinsic.height / intrinsic.width;
-      return { width: CONTENT_WIDTH_PX, height: Math.round(CONTENT_WIDTH_PX * ratio) };
+    const ratio = intrinsic.height / intrinsic.width;
+    let w = intrinsic.width > CONTENT_WIDTH_PX ? CONTENT_WIDTH_PX : intrinsic.width;
+    let h = Math.round(w * ratio);
+    if (maxHeightPx !== undefined && h > maxHeightPx) {
+      h = maxHeightPx;
+      w = Math.round(h / ratio);
     }
-    return intrinsic;
+    return { width: w, height: h };
   }
   return { width: 400, height: 300 };
 }
