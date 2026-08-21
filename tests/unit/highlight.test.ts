@@ -43,6 +43,25 @@ describe("tokenizeLine", () => {
     expect(stringTokens.some((t) => t.type === "string" && t.text === "'hello'")).toBe(true);
   });
 
+  it("tokenizes Python True/False/None as keywords, not plain identifiers", () => {
+    for (const line of ["is_admin = True", "found = False", "x = None", "print(True, False, None)"]) {
+      const tokens = tokenizeLine(line, "python")!;
+      for (const literal of ["True", "False", "None"]) {
+        const tok = tokens.find((t) => t.text === literal);
+        if (tok) expect(tok.type, `"${literal}" in "${line}"`).toBe("keyword");
+      }
+    }
+  });
+
+  it("tokenizes JS/TS true/false/null as keywords, not plain identifiers", () => {
+    const jsTokens = tokenizeLine("const ok = true, bad = false, x = null;", "javascript")!;
+    for (const literal of ["true", "false", "null"]) {
+      expect(jsTokens.find((t) => t.text === literal)?.type).toBe("keyword");
+    }
+    const tsTokens = tokenizeLine("let ok: boolean = true;", "typescript")!;
+    expect(tsTokens.find((t) => t.text === "true")?.type).toBe("keyword");
+  });
+
   it("tokenizes JavaScript/TypeScript keywords and // comments", () => {
     const tokens = tokenizeLine("const x = 1; // comment", "javascript")!;
     expect(tokens.some((t) => t.type === "keyword" && t.text === "const")).toBe(true);

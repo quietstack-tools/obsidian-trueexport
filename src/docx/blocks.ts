@@ -155,12 +155,25 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
       return renderCallout(block, ctx);
     case "codeBlock":
       return renderCodeBlock(block, ctx);
-    case "blockquote":
-      return renderBlocks(block.children, ctx, {
+    case "blockquote": {
+      // A distinct top-level blockquote (quoteDepth entering this block is
+      // 0 — i.e. NOT itself nested inside another quote) gets a trailing
+      // spacer, same root cause and fix as thematicBreak/callout tables:
+      // consecutive sibling blocks that each carry their own left border
+      // touch with no gap unless something adds spacing between them.
+      // Without it, three separate `>` blockquotes rendered as one
+      // unbroken bar. A NESTED blockquote (quoteDepth already >= 1 on the
+      // way in) must NOT get this spacer — it would insert an unwanted gap
+      // between the nested quote and whatever else still follows within
+      // the SAME enclosing quote.
+      const isTopLevelQuote = (opts.quoteDepth ?? 0) === 0;
+      const rendered = renderBlocks(block.children, ctx, {
         depth: opts.depth,
         quote: true,
         quoteDepth: (opts.quoteDepth ?? 0) + 1,
       });
+      return isTopLevelQuote ? [...rendered, tableSpacer()] : rendered;
+    }
     case "thematicBreak":
       return renderThematicBreak();
     case "imageBlock":

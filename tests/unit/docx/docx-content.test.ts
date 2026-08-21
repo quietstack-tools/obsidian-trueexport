@@ -119,6 +119,48 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     expect(nestedIndent).toBeGreaterThan(outerIndent);
   });
 
+  it("adds a spacer between separate sibling blockquotes so their left borders don't visually touch", async () => {
+    // Same root cause as thematicBreak/callout-table spacing this session:
+    // three distinct `>` blockquotes (blank line between each — three
+    // separate BlockquoteNodes, not one multi-paragraph quote) rendered as
+    // one unbroken bar with no gap.
+    const { documentXml } = await renderToDocx("> First quote.\n\n> Second quote.\n\n> Third quote.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const bodyChildren = Array.from(doc.getElementsByTagName("w:body")[0].children);
+
+    const indexOf = (needle: string): number =>
+      bodyChildren.findIndex((el) => (el.textContent ?? "").includes(needle));
+    const firstIndex = indexOf("First quote");
+    const secondIndex = indexOf("Second quote");
+    const thirdIndex = indexOf("Third quote");
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(secondIndex).toBeGreaterThan(firstIndex);
+    expect(thirdIndex).toBeGreaterThan(secondIndex);
+
+    // A spacer paragraph (no border, w:spacing w:after) sits directly
+    // between each pair of sibling quote paragraphs.
+    const spacerAfterFirst = bodyChildren[firstIndex + 1];
+    const spacerAfterSecond = bodyChildren[secondIndex + 1];
+    for (const spacer of [spacerAfterFirst, spacerAfterSecond]) {
+      expect(spacer.tagName).toBe("w:p");
+      expect(spacer.getElementsByTagName("w:pBdr").length).toBe(0);
+      expect(spacer.getElementsByTagName("w:spacing")[0]?.getAttribute("w:after")).toBe("120");
+    }
+  });
+
+  it("does NOT add a spacer after a nested blockquote (only distinct siblings need the gap)", async () => {
+    const { documentXml } = await renderToDocx("> Outer start.\n> > Nested.\n> Outer end.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const bodyChildren = Array.from(doc.getElementsByTagName("w:body")[0].children);
+    const nestedIndex = bodyChildren.findIndex((el) => (el.textContent ?? "").includes("Nested"));
+    const nextEl = bodyChildren[nestedIndex + 1];
+    // Whatever follows the nested quote's paragraph is NOT a bare spacer —
+    // it's the next real content (or, if the nested quote were last, the
+    // outer quote's own top-level spacer, which would come after "Outer
+    // end." instead). Here it must be the "Outer end." paragraph directly.
+    expect(nextEl.textContent ?? "").toContain("Outer end");
+  });
+
   it("shows a right-aligned language label above a labeled code fence, and none for an unlabeled one", async () => {
     const labeled = await renderToDocx("```python\nx = 1\n```");
     expect(labeled.documentXml).toContain(">python<");
@@ -178,5 +220,23 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     );
     expect(codeLineColors.size).toBe(1);
     expect(unrecognizedColors.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it("colours Python True/False/None the same keyword colour as other keywords, not the plain code colour", async () => {
+    const { documentXml } = await renderToDocx("```python\nis_admin = True\nfound = False\nx = None\n```");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const runs = Array.from(doc.getElementsByTagName("w:r"));
+    const colorOf = (text: string): string | undefined =>
+      runs
+        .find((r) => (r.getElementsByTagName("w:t")[0]?.textContent ?? "") === text)
+        ?.getElementsByTagName("w:color")[0]
+        ?.getAttribute("w:val") ?? undefined;
+
+    expect(colorOf("True")).toBe("0000FF");
+    expect(colorOf("False")).toBe("0000FF");
+    expect(colorOf("None")).toBe("0000FF");
+    // Not the flat "plain code" grey these literals would get if they were
+    // mistakenly left untokenized as ordinary identifiers.
+    expect(colorOf("True")).not.toBe("333333");
   });
 });
