@@ -37,6 +37,23 @@ export const COLORS = {
 } as const;
 
 /**
+ * Syntax-highlight token colours (§4.8 — a deliberate v1.0 reversal, see
+ * TECH_SPEC.md). Plain `w:color` runs, not a theme/JSON grammar file — this
+ * is a basic colour set close to common editor light themes, chosen for
+ * clear mutual distinction, not visual fidelity to any specific editor.
+ * `plain` reuses the existing code colour so untokenized text (punctuation,
+ * unsupported languages) looks exactly like it always has.
+ */
+export const TOKEN_COLORS: Record<import("../core/highlight").TokenType, string> = {
+  keyword: "0000FF",
+  string: "A31515",
+  comment: "008000",
+  number: "098658",
+  function: "795E26",
+  plain: COLORS.code,
+};
+
+/**
  * The built-in §5.1 style table, expressed in the neutral RefStyle shape so a
  * reference document's overrides can be merged in field-by-field.
  */

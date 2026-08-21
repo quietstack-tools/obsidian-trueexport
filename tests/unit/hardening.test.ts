@@ -76,7 +76,8 @@ describe("Stage 9 — mermaid", () => {
       deps: {},
     });
     const html = String(writer.files.get(result.outputPath));
-    expect(html).toContain("<pre><code");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("<code");
     expect(result.warnings.some((w) => w.construct === "mermaid")).toBe(true);
   });
 });

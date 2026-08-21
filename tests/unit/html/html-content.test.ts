@@ -48,10 +48,26 @@ describe("HTML content", () => {
     expect(html).toContain('<ol start="3">');
   });
 
-  it("renders a code block without highlighting, escaping content", async () => {
-    const { html } = await renderToHtml("```js\nif (a < b) {}\n```");
-    expect(html).toContain('<pre><code class="language-js">');
+  it("renders a code block with no language as plain, escaped, no label", async () => {
+    const { html } = await renderToHtml("```\nif (a < b) {}\n```");
+    expect(html).toContain("<pre><code>");
     expect(html).toContain("if (a &lt; b) {}");
+    expect(html).not.toContain('<div class="code-lang">');
+    expect(html).not.toContain("<span class=\"tok-");
+  });
+
+  it("falls back to plain, escaped rendering for an unrecognised language, but still shows its label", async () => {
+    const { html } = await renderToHtml("```cobol\nDISPLAY 'HI'.\n```");
+    expect(html).toContain('<div class="code-lang">cobol</div>');
+    expect(html).toContain("DISPLAY 'HI'."); // plain text, no token spans
+    expect(html).not.toContain("<span class=\"tok-");
+  });
+
+  it("highlights a recognised language into distinct token spans, with a language label", async () => {
+    const { html } = await renderToHtml("```js\nconst x = 1; // hi\n```");
+    expect(html).toContain('<div class="code-lang">js</div>');
+    expect(html).toContain('<span class="tok-keyword">const</span>');
+    expect(html).toContain('<span class="tok-comment">// hi</span>');
   });
 
   it("renders an unsupported construct as a visible marker", async () => {

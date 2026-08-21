@@ -32,7 +32,8 @@ import { latexToMath } from "./math";
 import { renderTable } from "./table";
 import { toPlainText } from "../core/parser/inline";
 import { hasRtl } from "../core/util/text";
-import { COLORS, CODE_FONT, RUN_LANGUAGE, calloutColor, calloutIcon, tint } from "./styles";
+import { tokenizeLine } from "../core/highlight";
+import { COLORS, CODE_FONT, RUN_LANGUAGE, TOKEN_COLORS, calloutColor, calloutIcon, tint } from "./styles";
 import type { RenderContext } from "./context";
 
 type Rendered = Paragraph | Table;
@@ -40,7 +41,17 @@ type Rendered = Paragraph | Table;
 interface BlockOpts {
   depth?: number;
   quote?: boolean;
+  /** Blockquote nesting depth (1 = top-level quote, 2 = quote-in-quote, …). Separate from `depth` (list nesting). */
+  quoteDepth?: number;
 }
+
+// A single OOXML paragraph can only carry one w:pBdr/w:left, so "two bars for
+// a doubly-nested quote" isn't representable on one line — instead, each
+// deeper level's border sits at a further-right indent than its parent's,
+// giving a staircase of bars across lines at different nesting depths, the
+// same visual idiom nested lists already use for depth.
+const QUOTE_INDENT_STEP = 240; // twips per nesting level; matches the old flat "Quote" style's indent.
+const QUOTE_BORDER = { style: BorderStyle.SINGLE, size: 8, color: COLORS.tableBorder, space: 8 };
 
 const HEADING_LEVELS = [
   HeadingLevel.HEADING_1,
@@ -119,11 +130,20 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     }
     case "paragraph": {
       const runs = wrapBookmark(block.blockId, renderInline(block.children, ctx), ctx);
+      const quoteDepth = opts.quote ? (opts.quoteDepth ?? 1) : 0;
       return [
         new Paragraph({
           style: opts.quote ? "Quote" : undefined,
           bidirectional: hasRtl(toPlainText(block.children)) || undefined,
           children: runs,
+          // Direct formatting overrides the "Quote" style's own fixed
+          // indent, so each nesting level gets progressively more indent
+          // and its own left border — a visual cue for nesting the flat
+          // style alone didn't provide (§4.3-style nesting indicator, same
+          // idiom nested lists already use).
+          ...(quoteDepth > 0
+            ? { indent: { left: QUOTE_INDENT_STEP * quoteDepth }, border: { left: QUOTE_BORDER } }
+            : {}),
         }),
       ];
     }
@@ -136,7 +156,11 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
     case "codeBlock":
       return renderCodeBlock(block, ctx);
     case "blockquote":
-      return renderBlocks(block.children, ctx, { quote: true, depth: opts.depth });
+      return renderBlocks(block.children, ctx, {
+        depth: opts.depth,
+        quote: true,
+        quoteDepth: (opts.quoteDepth ?? 0) + 1,
+      });
     case "thematicBreak":
       return renderThematicBreak();
     case "imageBlock":
@@ -356,23 +380,60 @@ function renderCallout(node: CalloutNode, ctx: RenderContext): Rendered[] {
   return [table, tableSpacer()];
 }
 
+/**
+ * A line's tokens as run(s). tokenizeLine() returns null for an unsupported
+ * or unset language (§4.8's default v1.0-style monospace, unchanged) — a
+ * single plain-coloured run, exactly as before this feature existed.
+ * Otherwise one coloured TextRun per token, so keyword/string/comment/
+ * number/function are visually distinct.
+ */
+function highlightedLineRuns(line: string, language: string | null): TextRun[] {
+  const tokens = tokenizeLine(line, language);
+  const text = line.length > 0 ? line : " ";
+  if (!tokens) {
+    return [new TextRun({ text, font: CODE_FONT, size: 18, color: COLORS.code, language: RUN_LANGUAGE })];
+  }
+  return tokens.map(
+    (t) =>
+      new TextRun({
+        text: t.text,
+        font: CODE_FONT,
+        size: 18,
+        color: TOKEN_COLORS[t.type],
+        language: RUN_LANGUAGE,
+      }),
+  );
+}
+
 function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Rendered[] {
   const lines = node.content.length > 0 ? node.content.split("\n") : [""];
   const paragraphs = lines.map(
-    (line) =>
-      new Paragraph({
-        style: "CodeBlock",
-        children: [
-          new TextRun({
-            text: line.length > 0 ? line : " ",
-            font: CODE_FONT,
-            size: 18,
-            color: COLORS.code,
-            language: RUN_LANGUAGE,
-          }),
-        ],
-      }),
+    (line) => new Paragraph({ style: "CodeBlock", children: highlightedLineRuns(line, node.language) }),
   );
+
+  // A plain-text language label, top-right — matching Obsidian's own editor.
+  // Not shown when the fence has no language (§4.8). Independent of whether
+  // that language is actually one of the ones this codebase highlights —
+  // this is metadata display, not a promise of colour.
+  const cellChildren: Paragraph[] = node.language
+    ? [
+        new Paragraph({
+          alignment: AlignmentType.RIGHT,
+          spacing: { after: 40 },
+          children: [
+            new TextRun({
+              text: node.language,
+              font: CODE_FONT,
+              size: 14,
+              italics: true,
+              color: COLORS.caption,
+              language: RUN_LANGUAGE,
+            }),
+          ],
+        }),
+        ...paragraphs,
+      ]
+    : paragraphs;
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -390,7 +451,7 @@ function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Rendered[] {
           new TableCell({
             shading: { type: ShadingType.CLEAR, fill: COLORS.codeFill, color: "auto" },
             margins: { top: 120, bottom: 120, left: 120, right: 120 },
-            children: paragraphs,
+            children: cellChildren,
           }),
         ],
       }),

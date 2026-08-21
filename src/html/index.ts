@@ -24,6 +24,7 @@ import type {
 import type { ExportOptions } from "../core/options";
 import { parseLatex } from "../math/parse";
 import { safeExternalUrl } from "../core/util/url";
+import { tokenizeLine } from "../core/highlight";
 import { mathmlDocument } from "./math";
 import { buildCss } from "./css";
 import { sanitizeRawHtml } from "./sanitize";
@@ -146,7 +147,10 @@ function renderBlock(block: BlockNode): string {
       return `<blockquote>\n${renderBlocks(block.children)}\n</blockquote>`;
     case "codeBlock": {
       const cls = block.language ? ` class="language-${escapeAttr(block.language)}"` : "";
-      return `<pre><code${cls}>${escapeHtml(block.content)}</code></pre>`;
+      // A plain-text language label, top-right — matching Obsidian's own
+      // editor — only when the fence declares one (§4.8).
+      const label = block.language ? `<div class="code-lang">${escapeHtml(block.language)}</div>` : "";
+      return `<pre>${label}<code${cls}>${renderCodeBody(block.content, block.language)}</code></pre>`;
     }
     case "thematicBreak":
       return "<hr>";
@@ -388,4 +392,22 @@ function escapeHtml(text: string): string {
 
 function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+/**
+ * Syntax-highlighted (or plain, for an unset/unsupported language) code
+ * body. tokenizeLine() returns null for anything outside the supported
+ * subset (§4.8) — that line is escaped as plain text, same output as before
+ * this feature existed. Otherwise each token becomes its own
+ * `<span class="tok-{type}">`, styled in css.ts.
+ */
+function renderCodeBody(content: string, language: string | null): string {
+  const lines = content.length > 0 ? content.split("\n") : [""];
+  return lines
+    .map((line) => {
+      const tokens = tokenizeLine(line, language);
+      if (!tokens) return escapeHtml(line);
+      return tokens.map((t) => `<span class="tok-${t.type}">${escapeHtml(t.text)}</span>`).join("");
+    })
+    .join("\n");
 }
