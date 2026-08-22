@@ -51,6 +51,31 @@ describe("transclusion — basic splicing", () => {
     expect(text).toContain("After");
   });
 
+  it("marks every top-level spliced block as embedded, but not the note's own native blocks", async () => {
+    const { doc } = await resolve("Native para.\n\n![[Other]]", {
+      sourcePath: "Main.md",
+      notes: { "Main.md": "", "Other.md": "# Heading\n\nOther body." },
+    });
+    const nativePara = doc.blocks.find((b) => b.type === "paragraph" && allText([b]).includes("Native para"));
+    const embeddedHeading = doc.blocks.find((b) => b.type === "heading");
+    const embeddedPara = doc.blocks.find((b) => b.type === "paragraph" && allText([b]).includes("Other body"));
+    expect(nativePara?.embedded).toBeFalsy();
+    expect(embeddedHeading?.embedded).toBe(true);
+    expect(embeddedPara?.embedded).toBe(true);
+  });
+
+  it("marks a section embed's spliced blocks as embedded too, not just full-note embeds", async () => {
+    const target = "# One\n\nfirst\n\n## Two\n\nsecond";
+    const { doc } = await resolve("![[T#Two]]", {
+      sourcePath: "M.md",
+      notes: { "M.md": "", "T.md": target },
+    });
+    const heading = doc.blocks.find((b) => b.type === "heading");
+    const para = doc.blocks.find((b) => b.type === "paragraph");
+    expect(heading?.embedded).toBe(true);
+    expect(para?.embedded).toBe(true);
+  });
+
   it("includes only a heading section up to the next same-or-higher heading", async () => {
     const target = "# One\n\nfirst\n\n## Two\n\nsecond\n\n# Three\n\nthird";
     const { doc } = await resolve("![[T#Two]]", {

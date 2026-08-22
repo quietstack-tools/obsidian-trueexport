@@ -53,6 +53,14 @@ interface BlockOpts {
 const QUOTE_INDENT_STEP = 240; // twips per nesting level; matches the old flat "Quote" style's indent.
 const QUOTE_BORDER = { style: BorderStyle.SINGLE, size: 8, color: COLORS.tableBorder, space: 8 };
 
+// A left border for embedded/transcluded content (§4.3), matching how
+// Obsidian's own editor shows a bordered preview around an embed — distinct
+// from the blockquote/callout borders (see COLORS.embedBorder). Applied to
+// top-level paragraphs/headings a transclusion spliced in (BlockBase.
+// embedded); deliberately shallow, not recursive into every nested
+// construct — see the doc comment on `embedded` in core/model/nodes.ts.
+const EMBED_BORDER = { style: BorderStyle.SINGLE, size: 8, color: COLORS.embedBorder, space: 8 };
+
 const HEADING_LEVELS = [
   HeadingLevel.HEADING_1,
   HeadingLevel.HEADING_2,
@@ -125,6 +133,7 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
           heading: HEADING_LEVELS[block.level - 1],
           bidirectional: hasRtl(toPlainText(block.children)) || undefined,
           children,
+          ...(block.embedded ? { border: { left: EMBED_BORDER } } : {}),
         }),
       ];
     }
@@ -143,7 +152,9 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
           // idiom nested lists already use).
           ...(quoteDepth > 0
             ? { indent: { left: QUOTE_INDENT_STEP * quoteDepth }, border: { left: QUOTE_BORDER } }
-            : {}),
+            : block.embedded
+              ? { border: { left: EMBED_BORDER } }
+              : {}),
         }),
       ];
     }

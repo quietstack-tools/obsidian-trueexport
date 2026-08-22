@@ -38,6 +38,15 @@ export interface NodeBase {
 export interface BlockBase extends NodeBase {
   /** Obsidian block reference id (`^id`) attached to this block, if any. */
   blockId?: string;
+  /**
+   * Set on every top-level block spliced in by a transclusion (§4.3), so
+   * renderers can visually distinguish embedded content from the note's own
+   * native content — matching Obsidian's own bordered embed preview.
+   * Deliberately shallow: only the blocks the resolver directly spliced in
+   * are marked, not every descendant recursively (e.g. individual items of
+   * an embedded list aren't marked separately from the list itself).
+   */
+  embedded?: boolean;
 }
 
 export type IdmNode = BlockNode | InlineNode;

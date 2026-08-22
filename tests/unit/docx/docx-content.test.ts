@@ -41,6 +41,47 @@ describe("DOCX content", () => {
     expect(imagePara!.getElementsByTagName("w:jc").length).toBe(0);
   });
 
+  it("gives embedded/transcluded content a left border distinct from native content (matches Obsidian's embed preview)", async () => {
+    const { documentXml } = await renderToDocx("Native paragraph.\n\n![[Other]]", {
+      notes: { "Main.md": "", "Other.md": "# Embedded Heading\n\nEmbedded body." },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = Array.from(doc.getElementsByTagName("w:p"));
+
+    const nativePara = paragraphs.find((p) => (p.textContent ?? "").includes("Native paragraph"));
+    const embeddedHeadingPara = paragraphs.find((p) => (p.textContent ?? "").includes("Embedded Heading"));
+    const embeddedBodyPara = paragraphs.find((p) => (p.textContent ?? "").includes("Embedded body"));
+
+    expect(nativePara).toBeDefined();
+    expect(embeddedHeadingPara).toBeDefined();
+    expect(embeddedBodyPara).toBeDefined();
+
+    // Native content has no left border...
+    expect(nativePara!.getElementsByTagName("w:pBdr").length).toBe(0);
+
+    // ...embedded content does, in the dedicated embed colour (distinct
+    // from the blockquote border colour, CCCCCC).
+    for (const para of [embeddedHeadingPara!, embeddedBodyPara!]) {
+      const left = para.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+      expect(left).toBeDefined();
+      expect(left!.getAttribute("w:val")).toBe("single");
+      expect(left!.getAttribute("w:color")).toBe("8C8C8C");
+    }
+  });
+
+  it("gives a section embed's content the same left-border treatment as a full-note embed", async () => {
+    const target = "# One\n\nfirst\n\n## Two\n\nsecond";
+    const { documentXml } = await renderToDocx("![[T#Two]]", {
+      notes: { "M.md": "", "T.md": target },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = Array.from(doc.getElementsByTagName("w:p"));
+    const secondPara = paragraphs.find((p) => (p.textContent ?? "").includes("second"));
+    expect(secondPara).toBeDefined();
+    const left = secondPara!.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+    expect(left?.getAttribute("w:color")).toBe("8C8C8C");
+  });
+
   it("caps an unresized image to the page's usable height, not just its width", async () => {
     // Same bug as image.test.ts's unit-level coverage, exercised through the
     // real render pipeline end to end: a large, normally-proportioned image

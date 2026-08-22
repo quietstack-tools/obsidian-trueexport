@@ -197,7 +197,14 @@ async function expandTransclusion(
   // already keeps it out of `blocks`.
   const subParsed = parseMarkdown(content, resolvedPath, ctx.options, ctx.warnings);
   const slice = extractSection(subParsed.blocks, target, resolvedPath, ctx, line);
-  return resolveNote(slice, resolvedPath, [...chain, resolvedPath], ctx);
+  const resolved = await resolveNote(slice, resolvedPath, [...chain, resolvedPath], ctx);
+  // Mark every top-level spliced block so renderers can visually
+  // distinguish embedded content from the note's own native content,
+  // matching Obsidian's own bordered embed preview (§4.3). Applies equally
+  // to a full-note embed and a section embed — both go through this same
+  // return path, extractSection() having already narrowed `slice` for the
+  // section case.
+  return resolved.map((b) => ({ ...b, embedded: true }));
 }
 
 function unsupportedTransclusion(reason: string, line?: number): UnsupportedNode {

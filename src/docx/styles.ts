@@ -34,6 +34,11 @@ export const COLORS = {
   tableBorder: "CCCCCC",
   tableHeaderFill: "F5F5F5",
   codeFill: "F5F5F5",
+  // A neutral grey, deliberately distinct from both the blockquote border
+  // (tableBorder, lighter) and every callout accent colour — embedded/
+  // transcluded content (§4.3) isn't a quote or a typed callout, so it gets
+  // its own visual identity rather than borrowing either convention.
+  embedBorder: "8C8C8C",
 } as const;
 
 /**
