@@ -31,6 +31,25 @@ describe("parseLatex", () => {
     expect(() => parseLatex("\\begin{matrix}")).toThrow(MathUnsupportedError);
     expect(() => parseLatex("\\weirdcmd{x}")).toThrow(MathUnsupportedError);
   });
+
+  it("parses \\, (thin space) and doesn't reject an otherwise-supported equation because of it", () => {
+    // Root cause of a real reported failure: \frac, \left…\right, and \int
+    // with sub/superscript bounds were ALL already supported individually —
+    // only the \, (thin space) between "f(u)" and "du" made this specific
+    // equation throw "Unsupported escape" and fall back to plain text.
+    expect(() => parseLatex("a\\,b")).not.toThrow();
+    expect(() =>
+      parseLatex(String.raw`\frac{d}{dx}\left( \int_{0}^{x} f(u)\,du\right)=f(x)`),
+    ).not.toThrow();
+  });
+
+  it("parses the other punctuation-named spacing commands (\\;, \\!) and letter-named ones (\\quad, \\qquad)", () => {
+    expect(() => parseLatex("a\\;b")).not.toThrow();
+    expect(() => parseLatex("a\\!b")).not.toThrow();
+    expect(() => parseLatex("a\\quad b")).not.toThrow();
+    expect(() => parseLatex("a\\qquad b")).not.toThrow();
+    expect(() => parseLatex("a\\ b")).not.toThrow(); // literal escaped space
+  });
 });
 
 describe("toMathml", () => {

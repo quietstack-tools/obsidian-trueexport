@@ -82,6 +82,18 @@ describe("DOCX content", () => {
     expect(left?.getAttribute("w:color")).toBe("8C8C8C");
   });
 
+  it("converts a block equation with \\frac, \\left…\\right, \\int bounds, and \\, to a real OMML equation, not a plain-text fallback", async () => {
+    // Regression for a reported bug: \, (thin space) alone made this
+    // otherwise-supported equation throw and fall back to Code-styled
+    // plain text — see tests/unit/math/math.test.ts for the isolated
+    // parser-level coverage.
+    const { documentXml } = await renderToDocx(
+      "$$\n\\frac{d}{dx}\\left( \\int_{0}^{x} f(u)\\,du\\right)=f(x)\n$$",
+    );
+    expect(documentXml).toContain("<m:oMath");
+    expect(documentXml).not.toContain('style="Code"');
+  });
+
   it("caps an unresized image to the page's usable height, not just its width", async () => {
     // Same bug as image.test.ts's unit-level coverage, exercised through the
     // real render pipeline end to end: a large, normally-proportioned image
