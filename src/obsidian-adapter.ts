@@ -204,8 +204,16 @@ export function createSvgRasterizer(): (svg: ArrayBuffer, scale: number) => Prom
     const url = URL.createObjectURL(blob);
     try {
       const image = await loadImage(url);
-      const width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
-      const height = Math.max(1, Math.round((image.naturalHeight || 150) * scale));
+      // image.naturalWidth/Height come back 0 in some engines for an SVG
+      // that only declares a viewBox (no width/height attributes) — common
+      // for Mermaid's own output, which sizes itself via CSS in Obsidian's
+      // live DOM rather than SVG attributes. Falling straight to the
+      // 300×150 default in that case produces a garbage-proportioned (or
+      // near-empty) raster despite the SVG itself being valid. Read the
+      // viewBox out of the source text as a fallback before defaulting.
+      const intrinsic = intrinsicSize(text);
+      const width = Math.max(1, Math.round((image.naturalWidth || intrinsic?.width || 300) * scale));
+      const height = Math.max(1, Math.round((image.naturalHeight || intrinsic?.height || 150) * scale));
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
@@ -220,11 +228,30 @@ export function createSvgRasterizer(): (svg: ArrayBuffer, scale: number) => Prom
   };
 }
 
+/** Read width/height from an SVG's viewBox (`minX minY width height`), if present. */
+function intrinsicSize(svgText: string): { width: number; height: number } | null {
+  const match = /viewBox\s*=\s*["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']/.exec(svgText);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
 /**
  * Render a Mermaid diagram to SVG using Obsidian's own Mermaid instance (§4.11),
  * by rendering a fenced mermaid block via MarkdownRenderer and extracting the
  * SVG. Version-dependent and DOM-based → a manual-verification seam; failure is
  * contained (the export layer degrades to a code block + warning).
+ *
+ * Obsidian's mermaid post-processing does not always finish inside the
+ * `MarkdownRenderer.render()` promise — mermaid.js itself renders on its own
+ * microtask/rAF schedule, so `el.querySelector("svg")` can find an empty
+ * shell element mermaid inserted as a placeholder before rendering actually
+ * completes. Extracting that shell "succeeds" (no exception, so no warning)
+ * but produces a blank/broken image once rasterised — a plausible cause of
+ * a diagram that should have rendered showing broken in Word with no
+ * warning logged. Poll briefly for the svg to actually contain rendered
+ * content (child nodes), not just exist, before extracting it.
  */
 export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
   return async (source) => {
@@ -232,13 +259,24 @@ export function createMermaidRenderer(app: App): (source: string) => Promise<str
     const component = new Component();
     try {
       await MarkdownRenderer.render(app, "```mermaid\n" + source + "\n```", el, "", component);
-      const svg = el.querySelector("svg");
+      const svg = await waitForRenderedSvg(el);
       if (!svg) throw new Error("Mermaid produced no SVG");
       return svg.outerHTML;
     } finally {
       component.unload();
     }
   };
+}
+
+/** Poll for an svg element with actual rendered content, up to ~2s. */
+async function waitForRenderedSvg(el: HTMLElement): Promise<SVGElement | null> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const svg = el.querySelector("svg");
+    if (svg && svg.childElementCount > 0) return svg;
+    if (Date.now() >= deadline) return svg; // give up waiting; return whatever's there (possibly null/empty)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
