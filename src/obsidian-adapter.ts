@@ -245,28 +245,34 @@ function intrinsicSize(svgText: string): { width: number; height: number } | nul
  *
  * Obsidian's mermaid post-processing does not always finish inside the
  * `MarkdownRenderer.render()` promise — mermaid.js renders on its own
- * microtask/rAF schedule. Two follow-up findings from manual testing, in
+ * microtask/rAF schedule. Three follow-up findings from manual testing, in
  * order:
  *
  * 1. An early fix polled for "the svg has child elements" — not specific
  *    enough. Direct inspection of the actual embedded PNG showed a generic
  *    broken-image glyph (two overlapping rounded squares — an icon, not a
- *    flowchart), 48×48px, structurally valid as a PNG. That's consistent
- *    with capturing an SVG-based UI icon Obsidian/the DOM shows as a
- *    placeholder or error state WHILE mermaid is still initialising —
- *    such an icon has real `<path>` children (satisfying the old check)
- *    but is not mermaid's own output at all.
- * 2. Fix: `isMermaidDiagramSvg()` positively identifies real mermaid
- *    flowchart/diagram output rather than merely checking "has children" —
- *    it requires BOTH a mermaid-specific marker (id/class containing
- *    "mermaid", or a node/edge/label class mermaid.js's renderers always
- *    emit) AND actual text content (every flowchart node/edge has a label,
- *    which a bare icon glyph never does). Polling now waits for a
- *    positively-identified diagram, not just non-empty content, and gives
- *    up (throwing → the standard code-block-+-warning fallback, same as a
- *    genuine parse failure) if one never appears within the deadline,
- *    rather than silently rasterising whatever placeholder happens to be
- *    in the container.
+ *    flowchart), 48×48px, structurally valid as a PNG: consistent with
+ *    capturing an SVG-based UI icon shown as a placeholder while mermaid
+ *    was still initialising, which has real `<path>` children (satisfying
+ *    the old check) but isn't mermaid's own output.
+ * 2. Fix: `isMermaidDiagramSvg()` positively identifies real mermaid output
+ *    (a mermaid-specific marker AND real content) instead of "has
+ *    children". Still failed a re-test with a REAL captured diagram.
+ * 3. Ground truth from a live-captured mermaid flowchart svg (Obsidian dev
+ *    tools): id `m<hash>`, class `flowchart` — neither contains the
+ *    literal substring "mermaid" anywhere (only inside unrelated <style>
+ *    CSS variable names). But it DOES carry the node/edge/cluster/label
+ *    descendant classes `isMermaidDiagramSvg()` already checked for. What
+ *    it does NOT have is native SVG `<text>`/`<tspan>` elements — labels
+ *    are HTML `<p>` inside `<foreignObject>` (mermaid.js's default label
+ *    rendering strategy since v9), which the original text-content check
+ *    didn't look for at all. `isMermaidDiagramSvg()` now checks
+ *    `textContent` instead of `querySelector("text, tspan")`, which covers
+ *    both rendering strategies. Also stopped assuming
+ *    `el.querySelector("svg")` (first match) lands on the diagram rather
+ *    than some other svg (e.g. a toolbar/zoom icon) Obsidian may render
+ *    into the same container — now checks every svg in the container
+ *    against the classifier.
  */
 export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
   return async (source) => {
@@ -296,10 +302,18 @@ export function createMermaidRenderer(app: App): (source: string) => Promise<str
  *  - A mermaid-specific marker: `id` or `class` containing "mermaid", OR a
  *    descendant carrying one of the CSS classes mermaid.js's own renderers
  *    always emit (node/edge/cluster/label groups — true across flowchart,
- *    sequence, class, state and other mermaid diagram types).
- *  - At least one text node: every mermaid diagram element (flowchart
- *    boxes, sequence messages, state labels, …) renders a text label: a
- *    bare icon glyph never does.
+ *    sequence, class, state and other mermaid diagram types). A real
+ *    diagram's own `id`/`class` often does NOT contain "mermaid" at all
+ *    (e.g. `id="m0cd67588838a1682" class="flowchart"`, confirmed against a
+ *    live-captured diagram) — the descendant-class check is what actually
+ *    matches in that case, so the id/class substring check alone is not
+ *    sufficient and must stay an "or", not the primary signal.
+ *  - Non-empty `textContent`: every mermaid diagram element (flowchart
+ *    boxes, sequence messages, state labels, …) renders a text label, a
+ *    bare icon glyph never does. Checking `textContent` rather than
+ *    `querySelector("text, tspan")` matters because mermaid.js's default
+ *    label rendering uses HTML `<p>` inside `<foreignObject>`, not native
+ *    SVG text elements — confirmed against the same live-captured diagram.
  */
 export function isMermaidDiagramSvg(svg: SVGElement): boolean {
   const idAndClass = `${svg.id} ${svg.getAttribute("class") ?? ""}`.toLowerCase();
@@ -308,16 +322,33 @@ export function isMermaidDiagramSvg(svg: SVGElement): boolean {
     svg.querySelector(
       '[class*="node"], [class*="edge"], [class*="cluster"], [class*="label"], [class*="actor"], [class*="messageText"]',
     ) !== null;
-  const hasTextContent = svg.querySelector("text, tspan") !== null;
+  // NOT svg.querySelector("text, tspan"): confirmed against a real captured
+  // mermaid flowchart svg (id="m<hash>", class="flowchart" — no "mermaid"
+  // substring anywhere in either) that modern mermaid.js renders labels as
+  // HTML <p> elements inside <foreignObject>, not native SVG <text>/<tspan>
+  // — so that check rejected genuinely valid output (hasMermaidMarker was
+  // true via the node/edge/label descendant classes; hasTextContent was the
+  // one that wrongly failed). textContent covers both native SVG text and
+  // foreignObject-embedded HTML text, so it doesn't matter which rendering
+  // strategy a given mermaid version/diagram type uses.
+  const hasTextContent = (svg.textContent ?? "").trim().length > 0;
   return hasMermaidMarker && hasTextContent;
 }
 
-/** Poll for a positively-identified mermaid diagram svg, up to ~2s. */
-async function waitForRenderedSvg(el: HTMLElement): Promise<SVGElement | null> {
+/**
+ * Poll for a positively-identified mermaid diagram svg, up to ~2s.
+ *
+ * Checks every `<svg>` in the container, not just the first one found:
+ * Obsidian's mermaid block can render more than one svg into the same
+ * container (e.g. a small toolbar/zoom-control icon alongside the actual
+ * diagram), and `el.querySelector("svg")` — first match in document order —
+ * has no guarantee of landing on the real diagram rather than a UI icon.
+ */
+export async function waitForRenderedSvg(el: HTMLElement): Promise<SVGElement | null> {
   const deadline = Date.now() + 2000;
   for (;;) {
-    const svg = el.querySelector("svg");
-    if (svg && isMermaidDiagramSvg(svg)) return svg;
+    const match = Array.from(el.querySelectorAll("svg")).find(isMermaidDiagramSvg);
+    if (match) return match;
     if (Date.now() >= deadline) return null; // give up — never got real diagram content, not just "nothing at all".
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

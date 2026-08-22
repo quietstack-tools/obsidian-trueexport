@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { App } from "obsidian";
-import { ObsidianVaultAdapter, isMermaidDiagramSvg } from "../../src/obsidian-adapter";
+import { ObsidianVaultAdapter, isMermaidDiagramSvg, waitForRenderedSvg } from "../../src/obsidian-adapter";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -124,4 +124,54 @@ describe("isMermaidDiagramSvg", () => {
     const svg = svgFragment("<text>Loading…</text>");
     expect(isMermaidDiagramSvg(svg)).toBe(false);
   });
+
+  it("accepts a real captured mermaid flowchart svg — id/class carry no literal 'mermaid' substring, labels are HTML <p> inside <foreignObject>, not SVG <text>", () => {
+    // Reconstructed from ground truth captured via Obsidian's dev tools:
+    // id="m<hash>" class="flowchart", node/edge/cluster/label descendant
+    // classes present, no <text>/<tspan> anywhere — labels are
+    // foreignObject-embedded HTML. The original querySelector("text,
+    // tspan") check rejected this real, valid diagram.
+    const svg = svgFragment(
+      '<g class="root">' +
+        '<g class="clusters"></g>' +
+        '<g class="edgePaths"><path class="edge-thickness-normal"/></g>' +
+        '<g class="edgeLabels"><g class="edgeLabel"><foreignObject><div><span class="edgeLabel">Yes</span></div></foreignObject></g></g>' +
+        '<g class="nodes">' +
+        '<g class="node default"><rect/><foreignObject><div class="nodeLabel"><p>Start</p></div></foreignObject></g>' +
+        '<g class="node default"><rect/><foreignObject><div class="nodeLabel"><p>Decision</p></div></foreignObject></g>' +
+        "</g>" +
+        "</g>",
+      { id: "m0cd67588838a1682", class: "flowchart" },
+    );
+    expect(svg.id.toLowerCase()).not.toContain("mermaid");
+    expect((svg.getAttribute("class") ?? "").toLowerCase()).not.toContain("mermaid");
+    expect(svg.querySelector("text, tspan")).toBeNull(); // the old, wrong check would have failed here
+    expect(isMermaidDiagramSvg(svg)).toBe(true);
+  });
+});
+
+describe("waitForRenderedSvg", () => {
+  it("finds the real mermaid diagram even when it isn't the first <svg> in the container", async () => {
+    const container = document.createElement("div");
+    // A decoy icon svg (e.g. a toolbar/zoom control) appears first in
+    // document order — the old el.querySelector("svg") (first match) would
+    // have grabbed this instead of the real diagram.
+    const icon = svgFragment('<path d="M2 2h20v20H2z"/>', { class: "lucide lucide-maximize" });
+    const diagram = svgFragment('<g class="node"><rect/><text>Start</text></g>', {
+      id: "m0cd67588838a1682",
+      class: "flowchart",
+    });
+    container.appendChild(icon);
+    container.appendChild(diagram);
+
+    const found = await waitForRenderedSvg(container);
+    expect(found).toBe(diagram);
+  });
+
+  it("gives up and returns null if no svg in the container is ever a real diagram", async () => {
+    const container = document.createElement("div");
+    container.appendChild(svgFragment('<path d="M2 2h20v20H2z"/>', { class: "lucide lucide-image-off" }));
+    const found = await waitForRenderedSvg(container);
+    expect(found).toBeNull();
+  }, 3000);
 });
