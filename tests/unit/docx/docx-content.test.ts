@@ -31,6 +31,16 @@ describe("DOCX content", () => {
     expect(documentXml).toContain("[Image not found: missing.png]");
   });
 
+  it("does not force an embedded image's paragraph to centre alignment (Obsidian defaults to left)", async () => {
+    const { documentXml } = await renderToDocx("![real](pic.png)", { binaries: { "pic.png": pngBytes() } });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const imagePara = Array.from(doc.getElementsByTagName("w:p")).find(
+      (p) => p.getElementsByTagName("a:graphic").length > 0 || p.getElementsByTagName("wp:inline").length > 0,
+    );
+    expect(imagePara).toBeDefined();
+    expect(imagePara!.getElementsByTagName("w:jc").length).toBe(0);
+  });
+
   it("caps an unresized image to the page's usable height, not just its width", async () => {
     // Same bug as image.test.ts's unit-level coverage, exercised through the
     // real render pipeline end to end: a large, normally-proportioned image

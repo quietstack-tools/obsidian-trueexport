@@ -486,7 +486,11 @@ function renderImageBlock(node: ImageBlockNode, ctx: RenderContext): Paragraph[]
       }),
     ];
   }
-  const paragraphs = [new Paragraph({ alignment: AlignmentType.CENTER, children: [built] })];
+  // No explicit alignment — Obsidian's own default rendering left-aligns
+  // images, and no part of TECH_SPEC.md's §4.9 (Images) documents centering
+  // as deliberate; forcing centre here was an unintentional default that
+  // didn't match the source app.
+  const paragraphs = [new Paragraph({ children: [built] })];
   if (node.caption) {
     paragraphs.push(new Paragraph({ style: "Caption", children: renderInline(node.caption, ctx) }));
   }
