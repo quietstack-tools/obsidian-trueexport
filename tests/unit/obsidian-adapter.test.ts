@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { App } from "obsidian";
-import { ObsidianVaultAdapter } from "../../src/obsidian-adapter";
+import { ObsidianVaultAdapter, isMermaidDiagramSvg } from "../../src/obsidian-adapter";
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgFragment(inner: string, attrs: Record<string, string> = {}): SVGElement {
+  const wrapper = document.createElementNS(SVG_NS, "svg");
+  for (const [k, v] of Object.entries(attrs)) wrapper.setAttribute(k, v);
+  wrapper.innerHTML = inner;
+  return wrapper;
+}
 
 // The mock App carries extra test-only fields (vault.notes, metadataCache
 // .resolver) that the real Obsidian types don't declare, so it's typed loosely.
@@ -68,5 +77,51 @@ describe("ObsidianVaultAdapter", () => {
     app.vault.notes.set("elsewhere/Z.md", "z");
     const adapter = new ObsidianVaultAdapter(app);
     expect(await adapter.listNotesInFolder("folder")).toEqual(["folder/Note.md", "folder/Other.md"]);
+  });
+});
+
+// isMermaidDiagramSvg() can't drive Obsidian's real mermaid rendering in
+// tests, but the classification logic is plain DOM inspection and fully
+// testable with jsdom — see the doc comment on createMermaidRenderer() in
+// src/obsidian-adapter.ts for why this exists: an early polling fix
+// accepted any <svg> with child elements, which also matched a generic
+// broken-image/placeholder icon (real path children, no mermaid markers,
+// no text) captured while mermaid was still initialising.
+describe("isMermaidDiagramSvg", () => {
+  it("accepts a real mermaid flowchart svg (id marker + node/edge classes + text labels)", () => {
+    const svg = svgFragment(
+      '<g class="root"><g class="node" id="A"><rect/><text>Start</text></g>' +
+        '<g class="edgePath"><path/></g><g class="node" id="B"><rect/><text>Decision</text></g></g>',
+      { id: "mermaid-svg-1" },
+    );
+    expect(isMermaidDiagramSvg(svg)).toBe(true);
+  });
+
+  it("accepts mermaid output identified by the svg's own class alone (no id), given text content", () => {
+    const svg = svgFragment('<g><rect/><text>Only node</text></g>', { class: "mermaid-diagram" });
+    expect(isMermaidDiagramSvg(svg)).toBe(true);
+  });
+
+  it("also accepts identification via node/edge descendant classes alone (no id/class marker on the svg itself)", () => {
+    const svg = svgFragment('<g class="node"><rect/><text>Only node</text></g>');
+    expect(isMermaidDiagramSvg(svg)).toBe(true);
+  });
+
+  it("rejects a generic icon svg — has real path children, but no mermaid marker and no text", () => {
+    // Mirrors the actual observed failure: a broken-image/placeholder icon
+    // is a real <svg> with real <path> children (satisfying a naive "has
+    // children" check) but is not mermaid output at all.
+    const svg = svgFragment('<path d="M2 2h20v20H2z"/><path d="M2 22 22 2"/>', { class: "lucide lucide-image-off" });
+    expect(isMermaidDiagramSvg(svg)).toBe(false);
+  });
+
+  it("rejects an svg with mermaid markers but no text (e.g. a still-rendering skeleton)", () => {
+    const svg = svgFragment('<g class="node"><rect/></g>', { id: "mermaid-svg-2" });
+    expect(isMermaidDiagramSvg(svg)).toBe(false);
+  });
+
+  it("rejects an svg with text but no mermaid markers (e.g. an unrelated icon with a label)", () => {
+    const svg = svgFragment("<text>Loading…</text>");
+    expect(isMermaidDiagramSvg(svg)).toBe(false);
   });
 });
