@@ -15,11 +15,16 @@
 // default label rendering (v9+) uses <foreignObject><p>…</p></foreignObject>
 // for every node/edge label, so every real diagram hit it.
 //
-// This sidesteps canvas entirely: render the SVG as the top-level document
-// in an off-screen Electron BrowserWindow, then capture a real screenshot
-// via webContents.capturePage(). That's a full page capture, not a canvas
-// pixel readback, so it has no tainting restriction regardless of what the
-// SVG contains.
+// This sidesteps canvas entirely: render the SVG in an off-screen Electron
+// BrowserWindow, then capture a real screenshot via webContents.capturePage().
+// That's a full page capture, not a canvas pixel readback, so it has no
+// tainting restriction regardless of what the SVG contains. The SVG is
+// wrapped in a minimal HTML document (wrapSvgHtml()) rather than loaded as
+// the top-level document directly — a raw SVG document renders at its own
+// natural size in the corner of the window rather than filling it, which
+// left genuine blank space in the captured PNG beyond the diagram's own
+// bounds (confirmed by manual test) when the window was sized larger than
+// that natural size for the deliberate oversampling scale factor.
 //
 // Same architecture as src/pdf/electron.ts: write to a temp file (not a
 // data: URL — avoids the URL-length concern already flagged there) and
@@ -41,8 +46,11 @@ export interface SvgRasterWindow {
 export interface SvgRasterRuntime {
   /** Open a hidden, sandboxed off-screen BrowserWindow at the given content size. */
   openWindow(width: number, height: number): SvgRasterWindow;
-  /** Write `svgText` to a fresh temp .svg file and return its absolute path. */
-  writeTempSvg(svgText: string): Promise<string>;
+  /**
+   * Write `html` (an HTML document wrapping the SVG — see wrapSvgHtml())
+   * to a fresh temp .html file and return its absolute path.
+   */
+  writeTempSvg(html: string): Promise<string>;
   /** Delete a temp file; must never throw. */
   removeFile(path: string): Promise<void>;
 }
@@ -84,13 +92,13 @@ export function defaultSvgRasterRuntime(): SvgRasterRuntime {
         destroy: () => win.destroy(),
       };
     },
-    async writeTempSvg(svgText): Promise<string> {
+    async writeTempSvg(html): Promise<string> {
       const os = require("os");
       const path = require("path");
       const fs = require("fs");
-      const name = `trueexport-${Date.now()}-${Math.random().toString(36).slice(2)}.svg`;
+      const name = `trueexport-${Date.now()}-${Math.random().toString(36).slice(2)}.html`;
       const file = path.join(os.tmpdir(), name);
-      await fs.promises.writeFile(file, svgText, "utf8");
+      await fs.promises.writeFile(file, html, "utf8");
       return file;
     },
     async removeFile(path): Promise<void> {
@@ -120,6 +128,36 @@ function viewBoxSize(svgText: string): { width: number; height: number } | null 
 }
 
 /**
+ * Wrap the SVG in a minimal HTML document that forces it to fill the whole
+ * viewport, rather than loading the raw .svg file directly as the top-level
+ * document.
+ *
+ * Confirmed by manual test: loading a raw SVG file directly renders it at
+ * its OWN natural/intrinsic size in the top-left of the BrowserWindow's
+ * viewport — it does NOT stretch to fill a larger window even when the
+ * window is deliberately sized bigger (for the 2× oversampling scale
+ * factor). capturePage() then captured the whole (larger) viewport,
+ * including the genuinely blank remainder beyond the SVG's own bounds — a
+ * diagram that should fill the frame instead occupied only its top-left
+ * portion. `width:100%;height:100%` on the svg element makes it fill
+ * whatever box CSS gives it; the svg's own `viewBox` (unaffected by CSS
+ * sizing) still controls internal scaling, and since the window's aspect
+ * ratio is deliberately set to match the SVG's own aspect ratio, the
+ * default `preserveAspectRatio` ("meet"/contain-fit) fills the box exactly
+ * with no letterboxing.
+ */
+function wrapSvgHtml(svgText: string): string {
+  return (
+    "<!DOCTYPE html><html><head><style>" +
+    "html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent}" +
+    "svg{display:block;width:100%;height:100%}" +
+    "</style></head><body>" +
+    svgText +
+    "</body></html>"
+  );
+}
+
+/**
  * Create the desktop SVG→PNG rasteriser. Call only on desktop (needs
  * Electron). `runtime` is injectable so the orchestration can be tested
  * without Electron.
@@ -134,6 +172,17 @@ function viewBoxSize(svgText: string): { width: number; height: number } | null 
  * at 2× (558×728px) would display at roughly double its intended physical
  * size, filling most of a page instead of reading as a compact diagram
  * (confirmed by manual test).
+ *
+ * Note on absolute captured pixel count: capturePage() captures at the
+ * host display's own device pixel ratio (e.g. 2× on a Retina Mac), which
+ * compounds with the `scale` requested here — a 279×364 diagram at
+ * `scale: 2` on a Retina host produces a ~1114×1458px PNG, not exactly
+ * 558×728px (confirmed by manual test). Not fixed here: aspect ratio and
+ * frame-filling are both still correct regardless of the exact multiplier,
+ * and forcing a specific device scale factor would need a global Electron
+ * command-line switch affecting the whole app, not a targeted per-window
+ * setting — judged not worth that trade-off for a cosmetic sharpness
+ * variance across host machines.
  */
 export function createElectronSvgRasterizer(
   runtime: SvgRasterRuntime = defaultSvgRasterRuntime(),
@@ -151,7 +200,7 @@ export function createElectronSvgRasterizer(
     const win = runtime.openWindow(pixelWidth, pixelHeight);
     let tempPath: string | undefined;
     try {
-      tempPath = await runtime.writeTempSvg(text);
+      tempPath = await runtime.writeTempSvg(wrapSvgHtml(text));
       await win.loadFile(tempPath);
       const png = await win.capturePNG();
       // Intended DISPLAY size — size.width/height BEFORE the scale
