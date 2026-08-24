@@ -50,7 +50,7 @@ describe("DOCX SVG rasterisation failure", () => {
     const warnings = new WarningCollector();
     const okRasterizer: DocxDeps = {
       // A 1x1 PNG stand-in; the renderer only needs valid-ish bytes to embed.
-      rasterizeSvg: async () => ({ data: textToArrayBuffer("PNGDATA") }),
+      rasterizeSvg: async () => ({ data: textToArrayBuffer("PNGDATA"), width: 1, height: 1 }),
     };
     const result = await renderToDocx(
       SOURCE,

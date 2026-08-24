@@ -129,8 +129,15 @@ export function displaySize(
   width?: number,
   height?: number,
   maxHeightPx?: number,
+  intended?: Dimensions,
 ): Dimensions {
-  const intrinsic = imageDimensions(data, mimeType);
+  // `intended` (the pre-scale size a rasteriser reports — see
+  // MediaResource.intendedWidth/Height) stands in for the "natural" size a
+  // caller would otherwise read from the raw pixel header. A 2x-oversampled
+  // rasterised image's own PNG header reports pixel dimensions twice its
+  // intended DISPLAY size; using those directly here would make the image
+  // display at roughly double its intended physical size.
+  const intrinsic = intended ?? imageDimensions(data, mimeType);
 
   if (width !== undefined && height !== undefined) return { width, height };
   if (width !== undefined) {

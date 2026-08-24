@@ -9,10 +9,16 @@ export interface DocxDeps {
   /**
    * Rasterise an SVG to PNG at the given scale (§4.9). Word's SVG support is
    * unreliable, so SVGs are rasterised before embedding. Injected because it
-   * needs a canvas/DOM (provided by the Obsidian layer); absent in pure tests,
-   * where SVGs fall back to a placeholder.
+   * needs Electron (provided by the Obsidian layer); absent in pure tests
+   * and on mobile, where SVGs fall back to a placeholder.
+   *
+   * `width`/`height` are the intended DISPLAY size — the SVG's own size
+   * BEFORE the scale multiplier, not the oversampled PNG's raw pixel
+   * dimensions. A 2x-rasterised 279×364 diagram returns a 558×728px PNG but
+   * `width: 279, height: 364` here, so the renderer displays it at its
+   * intended physical size while still using the sharper pixel data.
    */
-  rasterizeSvg?: (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer }>;
+  rasterizeSvg?: (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer; width: number; height: number }>;
 }
 
 export interface RenderContext {

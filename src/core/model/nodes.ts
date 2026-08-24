@@ -302,4 +302,16 @@ export interface MediaResource {
   data?: ArrayBuffer;
   mimeType?: string;
   originalPath: string;
+  /**
+   * The intended physical DISPLAY size in px, distinct from `data`'s raw
+   * pixel dimensions — set when a resource was rasterised at a higher pixel
+   * density than its display size for sharpness (e.g. a Mermaid diagram
+   * rasterised at 2x: the PNG is 558×728px, but should still DISPLAY at
+   * 279×364px, not fill the page at its raw pixel count read as if it were
+   * 96dpi). Absent for anything that isn't deliberately oversampled — an
+   * ordinary embedded image's raw pixel dimensions are its display size, no
+   * distinction needed.
+   */
+  intendedWidth?: number;
+  intendedHeight?: number;
 }

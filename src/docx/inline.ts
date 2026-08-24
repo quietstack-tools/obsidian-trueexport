@@ -215,7 +215,14 @@ export function buildImage(
   // that fully-automatic case (see displaySize()'s doc comment) — an
   // explicit |width resize is left as the user's deliberate choice.
   const maxHeightPx = contentHeightPx(ctx.options.pageSize, ctx.options.orientation);
-  const size = displaySize(res.data, res.mimeType, node.width, node.height, maxHeightPx);
+  // A rasterised-from-SVG image (e.g. a Mermaid diagram, rasterised at 2x
+  // for sharpness) carries its intended DISPLAY size separately from its
+  // raw pixel dimensions — see MediaResource.intendedWidth/Height.
+  const intended =
+    res.intendedWidth !== undefined && res.intendedHeight !== undefined
+      ? { width: res.intendedWidth, height: res.intendedHeight }
+      : undefined;
+  const size = displaySize(res.data, res.mimeType, node.width, node.height, maxHeightPx, intended);
   // SVG was handled above, so the type here is always a raster format.
   const type = imageType(res.mimeType) as "png" | "jpg" | "gif" | "bmp";
   return new ImageRun({ type, data: new Uint8Array(res.data), transformation: size });

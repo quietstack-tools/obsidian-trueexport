@@ -93,6 +93,26 @@ describe("displaySize", () => {
     expect(size).toEqual({ width: 200, height: 100 });
   });
 
+  it("uses the `intended` size instead of the raw PNG header, when given (2x-oversampled rasterised images)", () => {
+    // The PNG's own header (read via imageDimensions()) reports 558x728 —
+    // what a 279x364 diagram rasterised at 2x for sharpness actually
+    // produces as pixel data. `intended` (279x364) is the physical size it
+    // should DISPLAY at; using the raw header directly here is the exact
+    // bug this fix addresses — it would show at roughly double size.
+    const size = displaySize(pngHeader(558, 728), "image/png", undefined, undefined, undefined, {
+      width: 279,
+      height: 364,
+    });
+    expect(size).toEqual({ width: 279, height: 364 });
+  });
+
+  it("still applies the content-width cap to an `intended` size, same as an ordinary intrinsic size", () => {
+    const oversizedIntended = { width: 3000, height: 1500 }; // 2:1 ratio, well over CONTENT_WIDTH_PX
+    const size = displaySize(pngHeader(6000, 3000), "image/png", undefined, undefined, undefined, oversizedIntended);
+    expect(size.width).toBe(CONTENT_WIDTH_PX);
+    expect(size.height).toBe(Math.round(CONTENT_WIDTH_PX * 0.5));
+  });
+
   it("leaves an explicit |width resize alone even if the result is tall relative to the page", () => {
     // Deliberate user choice — see displaySize()'s doc comment for why this
     // differs from the fully-automatic case.

@@ -8,12 +8,12 @@
 import { Notice, Plugin, Platform, TFile, TFolder, type Menu } from "obsidian";
 import {
   ObsidianVaultAdapter,
-  createSvgRasterizer,
   createMermaidRenderer,
   createRemoteImageFetcher,
   createHtmlSanitizer,
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
+import { createElectronSvgRasterizer } from "./src/svg-rasterizer-electron";
 import { createFsWriter, isValidExportRoot } from "./src/fs-writer";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
@@ -51,7 +51,6 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
     this.licence = new LicenceManager(this);
     this.adapter = new ObsidianVaultAdapter(this.app);
     this.deps = {
-      rasterizeSvg: createSvgRasterizer(),
       mermaidToSvg: createMermaidRenderer(this.app),
       // The remote-image fetch capability. It only ever runs when the user has
       // enabled the default-off "Allow remote images" setting (§7.6).
@@ -59,8 +58,17 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       // DOM-based sanitiser for raw HTML blocks (defence-in-depth over the
       // renderer's regex baseline and the document CSP).
       sanitizeHtml: createHtmlSanitizer(),
-      // PDF is desktop-only: only wire the Electron seam there (§7.5).
-      ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
+      // PDF and SVG rasterisation are both desktop-only: they need Electron's
+      // BrowserWindow (§7.5). Canvas-based rasterisation (drawImage +
+      // getImageData/toBlob) was tried first and rejected — it throws a
+      // "tainted canvas" SecurityError for any SVG containing <foreignObject>
+      // HTML content, which is how Mermaid renders diagram labels by
+      // default, so every real Mermaid diagram hit it. The Electron seam
+      // captures a real off-screen page render instead, which has no such
+      // restriction — see src/svg-rasterizer-electron.ts.
+      ...(Platform.isDesktop
+        ? { htmlToPdf: createElectronHtmlToPdf(), rasterizeSvg: createElectronSvgRasterizer() }
+        : {}),
     };
 
     this.addCommand({

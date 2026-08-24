@@ -100,7 +100,7 @@ describe("Stage 9 — mermaid", () => {
     const fakePng = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]).buffer;
     const deps: ExportDeps = {
       mermaidToSvg: vi.fn(async () => "<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>"),
-      rasterizeSvg: vi.fn(async () => ({ data: fakePng })),
+      rasterizeSvg: vi.fn(async () => ({ data: fakePng, width: 1, height: 1 })),
     };
     const result = await exportNote({
       adapter: noteAdapter(),
@@ -138,7 +138,7 @@ describe("Stage 9 — mermaid", () => {
       mermaidToSvg: vi.fn(async () => {
         throw new Error("Mermaid parse error");
       }),
-      rasterizeSvg: vi.fn(async () => ({ data: new ArrayBuffer(4) })),
+      rasterizeSvg: vi.fn(async () => ({ data: new ArrayBuffer(4), width: 1, height: 1 })),
     };
     const result = await exportNote({
       adapter: brokenAdapter,
@@ -182,7 +182,7 @@ describe("Stage 9 — mermaid", () => {
         if (src.includes("Unclosed")) throw new Error("parse error");
         return "<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>";
       }),
-      rasterizeSvg: vi.fn(async () => ({ data: fakePng })),
+      rasterizeSvg: vi.fn(async () => ({ data: fakePng, width: 1, height: 1 })),
     };
     const result = await exportNote({
       adapter: twoDiagramAdapter,

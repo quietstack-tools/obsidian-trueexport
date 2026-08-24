@@ -192,52 +192,6 @@ export function createHtmlSanitizer(): (html: string) => string {
 }
 
 /**
- * Rasterise an SVG to PNG using a canvas (§4.9). Word's SVG support is
- * unreliable, so DOCX embeds a raster copy. This can only exist in the Obsidian
- * environment (needs DOM/canvas), which is why it is injected into renderDocx
- * rather than living in pure core.
- */
-export function createSvgRasterizer(): (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer }> {
-  return async (svg, scale) => {
-    const text = new TextDecoder().decode(svg);
-    const blob = new Blob([text], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const image = await loadImage(url);
-      // image.naturalWidth/Height come back 0 in some engines for an SVG
-      // that only declares a viewBox (no width/height attributes) — common
-      // for Mermaid's own output, which sizes itself via CSS in Obsidian's
-      // live DOM rather than SVG attributes. Falling straight to the
-      // 300×150 default in that case produces a garbage-proportioned (or
-      // near-empty) raster despite the SVG itself being valid. Read the
-      // viewBox out of the source text as a fallback before defaulting.
-      const intrinsic = intrinsicSize(text);
-      const width = Math.max(1, Math.round((image.naturalWidth || intrinsic?.width || 300) * scale));
-      const height = Math.max(1, Math.round((image.naturalHeight || intrinsic?.height || 150) * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas 2D context unavailable");
-      ctx.drawImage(image, 0, 0, width, height);
-      const png = await canvasToPng(canvas);
-      return { data: png };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  };
-}
-
-/** Read width/height from an SVG's viewBox (`minX minY width height`), if present. */
-function intrinsicSize(svgText: string): { width: number; height: number } | null {
-  const match = /viewBox\s*=\s*["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)\s*["']/.exec(svgText);
-  if (!match) return null;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  return width > 0 && height > 0 ? { width, height } : null;
-}
-
-/**
  * Render a Mermaid diagram to SVG using Obsidian's own Mermaid instance (§4.11),
  * by rendering a fenced mermaid block via MarkdownRenderer and extracting the
  * SVG. Version-dependent and DOM-based → a manual-verification seam; failure is
@@ -276,7 +230,23 @@ function intrinsicSize(svgText: string): { width: number; height: number } | nul
  */
 export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
   return async (source) => {
+    // Obsidian's Markdown post-processors — including whatever triggers
+    // Mermaid's own rendering — only run for elements actually attached to
+    // the document. A fully detached container (never appended anywhere)
+    // makes MarkdownRenderer.render() fall back to plain syntax-highlighted
+    // text for the fenced block, no diagram ever gets rendered, and no
+    // classifier can succeed because there's nothing valid to find (root
+    // cause confirmed via debug logging: candidateCount was always 1, and
+    // that one candidate was the code block's own "copy" button icon, not
+    // a placeholder or a mermaid SVG). Positioned off-screen rather than
+    // hidden via display:none/visibility:hidden, since some layout-
+    // dependent rendering paths skip work entirely for non-rendered
+    // elements the same way a detached element does.
     const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.left = "-99999px";
+    el.style.top = "0";
+    document.body.appendChild(el);
     const component = new Component();
     try {
       await MarkdownRenderer.render(app, "```mermaid\n" + source + "\n```", el, "", component);
@@ -285,6 +255,7 @@ export function createMermaidRenderer(app: App): (source: string) => Promise<str
       return svg.outerHTML;
     } finally {
       component.unload();
+      el.remove();
     }
   };
 }
@@ -354,23 +325,3 @@ export async function waitForRenderedSvg(el: HTMLElement): Promise<SVGElement | 
   }
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to load SVG for rasterisation"));
-    image.src = url;
-  });
-}
-
-function canvasToPng(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Canvas toBlob returned null"));
-        return;
-      }
-      blob.arrayBuffer().then(resolve, reject);
-    }, "image/png");
-  });
-}

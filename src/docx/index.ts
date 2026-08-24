@@ -199,9 +199,13 @@ async function rasterizeSvgs(
   for (const res of resources) {
     if (res.kind === "binary" && res.mimeType === "image/svg+xml" && res.data) {
       try {
-        const { data } = await deps.rasterizeSvg(res.data, 2);
+        const { data, width, height } = await deps.rasterizeSvg(res.data, 2);
         res.data = data;
         res.mimeType = "image/png";
+        // The physical size to DISPLAY at, not the (2x-oversampled) PNG's
+        // raw pixel dimensions — see MediaResource.intendedWidth/Height.
+        res.intendedWidth = width;
+        res.intendedHeight = height;
       } catch {
         // One malformed SVG must never abort the whole export (§4.9). Leave the
         // original SVG bytes in place — the renderer degrades an un-rasterised

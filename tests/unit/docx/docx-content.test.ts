@@ -118,10 +118,29 @@ describe("DOCX content", () => {
     const { documentXml, entries } = await renderToDocx(
       "![vec](drawing.svg)",
       { binaries: { "drawing.svg": textToArrayBuffer("<svg/>") } },
-      { deps: { rasterizeSvg: async () => ({ data: pngBytes() }) } },
+      { deps: { rasterizeSvg: async () => ({ data: pngBytes(), width: 1, height: 1 }) } },
     );
     expect(entries.some((e) => e.startsWith("word/media/"))).toBe(true);
     expect(documentXml).not.toContain("[SVG image");
+  });
+
+  it("displays a rasterised SVG (e.g. a 2x-oversampled Mermaid diagram) at its INTENDED size, not the oversampled PNG's raw pixel dimensions", async () => {
+    // The rasteriser reports intended display size (279x364) separately
+    // from the actual PNG bytes' own pixel dimensions — a 2x-oversampled
+    // 558x728px raster read directly as 96dpi display pixels would show
+    // roughly double the intended physical size, confirmed by manual test
+    // (a compact 4-box flowchart filling almost a full page).
+    const { documentXml } = await renderToDocx(
+      "![vec](drawing.svg)",
+      { binaries: { "drawing.svg": textToArrayBuffer("<svg/>") } },
+      { deps: { rasterizeSvg: async () => ({ data: pngBytes(), width: 279, height: 364 }) } },
+    );
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const extent = doc.getElementsByTagName("wp:extent")[0];
+    expect(extent).toBeDefined();
+    // 9525 EMU per px at 96 DPI — the standard OOXML conversion.
+    expect(extent.getAttribute("cx")).toBe(String(279 * 9525));
+    expect(extent.getAttribute("cy")).toBe(String(364 * 9525));
   });
 
   it("falls back to an SVG placeholder without a rasteriser", async () => {
