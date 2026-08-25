@@ -34,6 +34,25 @@ export function contentHeightPx(pageSize: PageSize, orientation: Orientation): n
   return Math.round((heightTwips - MARGIN_TWIPS * 2) / TWIPS_PER_PX);
 }
 
+/**
+ * Usable page width in twips, after margins — the single source of truth
+ * for `w:tblGrid`/`w:gridCol` on every single- and multi-column table in
+ * the DOCX renderer (§9.3). `docx`'s `Table` defaults `columnWidths` to 100
+ * twips (~0.07in) per column when not given explicitly; Word treats that as
+ * a soft hint and defers to `w:tblW: 100%`, but Apple Pages was confirmed
+ * (manual test) to size EVERY table type literally from gridCol regardless
+ * of the percentage width — callouts, code blocks, the frontmatter
+ * properties table, and ordinary markdown tables all rendered as
+ * narrow, character-wrapped columns until each was given explicit,
+ * correctly-computed columnWidths (thematicBreak was fixed first, in an
+ * earlier round; this is the same fix applied everywhere else).
+ */
+export function contentWidthTwips(pageSize: PageSize, orientation: Orientation): number {
+  const size = PAGE_SIZES_TWIPS[pageSize] ?? PAGE_SIZES_TWIPS.A4;
+  const widthTwips = orientation === "landscape" ? size.h : size.w;
+  return widthTwips - MARGIN_TWIPS * 2;
+}
+
 export function imageType(mimeType: string | undefined): DocxImageType {
   switch (mimeType) {
     case "image/png":

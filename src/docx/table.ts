@@ -17,6 +17,7 @@ import {
 import type { TableNode, TableAlignment, TableCell as IdmCell } from "../core/model/nodes";
 import { renderInline } from "./inline";
 import { COLORS } from "./styles";
+import { contentWidthTwips } from "./image";
 import type { RenderContext } from "./context";
 
 const CELL_MARGINS = { top: 80, bottom: 80, left: 80, right: 80 };
@@ -62,8 +63,20 @@ export function renderTable(node: TableNode, ctx: RenderContext): Table {
       }),
   );
 
+  // Pages was confirmed (manual test) to size every table type from
+  // w:tblGrid/w:gridCol literally rather than deferring to w:tblW: 100% —
+  // same fix as thematicBreak/callouts/code blocks (see
+  // renderThematicBreak()'s doc comment in blocks.ts). No existing
+  // convention for uneven column widths on a generic markdown table (unlike
+  // the frontmatter properties table's label/value shape), so columns
+  // split the usable width evenly.
+  const columnCount = node.header.cells.length;
+  const fullWidth = contentWidthTwips(ctx.options.pageSize, ctx.options.orientation);
+  const columnWidths = Array(columnCount).fill(Math.round(fullWidth / columnCount));
+
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths,
     borders: {
       top: b,
       bottom: b,

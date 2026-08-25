@@ -73,4 +73,12 @@ describe("DOCX callouts", () => {
     const spacing = spacer.getElementsByTagName("w:spacing")[0];
     expect(spacing.getAttribute("w:after")).toBe("120");
   });
+
+  it("sets an explicit, realistic gridCol width (Pages sizes gridCol literally, not just w:tblW)", async () => {
+    const { documentXml } = await renderToDocx("> [!note] Heads Up\n> body text");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCol = doc.getElementsByTagName("w:gridCol")[0];
+    expect(gridCol).toBeDefined();
+    expect(Number(gridCol.getAttribute("w:w"))).toBeGreaterThan(5000); // nowhere near the 100-twip default
+  });
 });

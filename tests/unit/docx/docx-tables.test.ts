@@ -25,4 +25,24 @@ describe("DOCX tables", () => {
     expect(documentXml).toContain('w:jc w:val="center"');
     expect(documentXml).toContain('w:jc w:val="right"');
   });
+
+  it("sets explicit, realistic columnWidths (Pages sizes gridCol literally, not just w:tblW)", async () => {
+    // docx's Table defaults columnWidths to 100 twips (~0.07in) per column
+    // when not given explicitly — Word treats that as a soft hint and
+    // defers to w:tblW: 100%, but Apple Pages was confirmed (manual test)
+    // to size every table type from gridCol literally, rendering as a
+    // narrow, character-wrapped column.
+    const { documentXml } = await renderToDocx(TABLE);
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCols = Array.from(doc.getElementsByTagName("w:gridCol"));
+    expect(gridCols.length).toBe(3); // Left, Center, Right
+    const widths = gridCols.map((c) => Number(c.getAttribute("w:w")));
+    for (const w of widths) expect(w).toBeGreaterThan(1000); // nowhere near the 100-twip default
+    // Evenly split — no existing convention for uneven columns here.
+    expect(new Set(widths).size).toBe(1);
+    // Roughly the full usable page width, not some arbitrary total.
+    const total = widths.reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThan(8000);
+    expect(total).toBeLessThan(9100);
+  });
 });

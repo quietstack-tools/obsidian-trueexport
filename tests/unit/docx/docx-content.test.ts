@@ -180,6 +180,18 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     expect(documentXml).toContain('w:tblW w:type="pct" w:w="100%"');
   });
 
+  it("gives the frontmatter table explicit gridCol widths, narrower label column + wider value column", async () => {
+    const { documentXml } = await renderToDocx("---\ntitle: T\nauthor: Jane\n---\n\nbody", {
+      options: { frontmatterMode: "table" },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCols = Array.from(doc.getElementsByTagName("w:gridCol"));
+    expect(gridCols.length).toBe(2);
+    const [label, value] = gridCols.map((c) => Number(c.getAttribute("w:w")));
+    expect(label).toBeGreaterThan(1000); // nowhere near the 100-twip default
+    expect(value).toBeGreaterThan(label); // matches the existing 30%/70% cell-width convention
+  });
+
   it("maps frontmatter to properties in metadata mode", async () => {
     const { zip } = await renderToDocx("---\ntitle: Meta\ntags: [x, y]\n---\n\nbody", {
       options: { frontmatterMode: "metadata" },
@@ -279,6 +291,14 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     ).filter((p) => (p.textContent ?? "").trim() === "");
     // No stray right-aligned label paragraph in the unlabeled case.
     expect(noLabelParas.every((p) => p.getElementsByTagName("w:jc").length === 0)).toBe(true);
+  });
+
+  it("sets an explicit, realistic gridCol width on a code-block table", async () => {
+    const { documentXml } = await renderToDocx("```\nx = 1\n```");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCol = doc.getElementsByTagName("w:gridCol")[0];
+    expect(gridCol).toBeDefined();
+    expect(Number(gridCol.getAttribute("w:w"))).toBeGreaterThan(5000); // nowhere near the 100-twip default
   });
 
   it("colours a recognised language's tokens distinctly; an unrecognised language and no language stay monospace-only", async () => {

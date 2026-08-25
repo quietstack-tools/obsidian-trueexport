@@ -71,7 +71,7 @@ export async function renderDocx(
 
   const bodyChildren = [];
   if (options.frontmatterMode === "table" && Object.keys(doc.frontmatter).length > 0) {
-    bodyChildren.push(renderFrontmatterTable(doc.frontmatter));
+    bodyChildren.push(renderFrontmatterTable(doc.frontmatter, ctx));
   }
   bodyChildren.push(...renderBlocks(doc.blocks, ctx));
 

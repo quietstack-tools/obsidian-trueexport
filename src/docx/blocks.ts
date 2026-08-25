@@ -34,6 +34,7 @@ import { toPlainText } from "../core/parser/inline";
 import { hasRtl } from "../core/util/text";
 import { tokenizeLine } from "../core/highlight";
 import { COLORS, CODE_FONT, RUN_LANGUAGE, TOKEN_COLORS, calloutColor, calloutIcon, tint } from "./styles";
+import { contentWidthTwips } from "./image";
 import type { RenderContext } from "./context";
 
 type Rendered = Paragraph | Table;
@@ -186,7 +187,7 @@ function renderBlock(block: BlockNode, ctx: RenderContext, opts: BlockOpts): Ren
       return isTopLevelQuote ? [...rendered, tableSpacer()] : rendered;
     }
     case "thematicBreak":
-      return renderThematicBreak();
+      return renderThematicBreak(ctx);
     case "imageBlock":
       return renderImageBlock(block, ctx);
     case "htmlBlock":
@@ -306,7 +307,6 @@ function renderList(list: ListNode, ctx: RenderContext, depth: number): Rendered
  * space after a table in OOXML, since tables can't carry that property
  * themselves.
  */
-const FULL_WIDTH_TWIPS = 9026; // A4 (11906 twips) minus 1in (1440 twips) margins each side.
 // Matches the original paragraph-based rule's before/after spacing. Also
 // used for callout/code-block tables below — none of docx's Table types
 // carry an OOXML "spacing after" property, so every single-cell table in
@@ -323,11 +323,12 @@ function tableSpacer(afterTwips: number = TABLE_AFTER_SPACING_TWIPS): Paragraph 
   return new Paragraph({ spacing: { before: 0, after: afterTwips }, children: [] });
 }
 
-function renderThematicBreak(): Rendered[] {
+function renderThematicBreak(ctx: RenderContext): Rendered[] {
+  const fullWidthTwips = contentWidthTwips(ctx.options.pageSize, ctx.options.orientation);
   const bottom = { style: BorderStyle.SINGLE, size: 6, color: COLORS.tableBorder };
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    columnWidths: [FULL_WIDTH_TWIPS],
+    columnWidths: [fullWidthTwips],
     borders: {
       top: NO_BORDER,
       left: NO_BORDER,
@@ -380,6 +381,9 @@ function renderCallout(node: CalloutNode, ctx: RenderContext): Rendered[] {
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    // See renderThematicBreak()'s doc comment: Pages sizes every table type
+    // from gridCol literally, not just this one — confirmed by manual test.
+    columnWidths: [contentWidthTwips(ctx.options.pageSize, ctx.options.orientation)],
     borders: {
       top: NO_BORDER,
       bottom: NO_BORDER,
@@ -461,6 +465,9 @@ function renderCodeBlock(node: CodeBlockNode, ctx: RenderContext): Rendered[] {
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    // See renderThematicBreak()'s doc comment: Pages sizes every table type
+    // from gridCol literally, not just this one — confirmed by manual test.
+    columnWidths: [contentWidthTwips(ctx.options.pageSize, ctx.options.orientation)],
     borders: {
       top: NO_BORDER,
       bottom: NO_BORDER,
@@ -509,8 +516,15 @@ function renderImageBlock(node: ImageBlockNode, ctx: RenderContext): Paragraph[]
 }
 
 /** Frontmatter rendered as a two-column table at the top of the body (§4.12). */
-export function renderFrontmatterTable(frontmatter: Record<string, unknown>): Table {
+export function renderFrontmatterTable(frontmatter: Record<string, unknown>, ctx: RenderContext): Table {
   const b = { style: BorderStyle.SINGLE, size: 4, color: COLORS.tableBorder };
+  // See renderThematicBreak()'s doc comment: Pages sizes every table type
+  // from gridCol literally, not just this one — confirmed by manual test.
+  // Split 30/70 to match this table's own existing label-cell width
+  // (30%, set below) rather than dividing evenly — a narrow label column
+  // and wider value column suits this table's actual shape.
+  const fullWidth = contentWidthTwips(ctx.options.pageSize, ctx.options.orientation);
+  const columnWidths = [Math.round(fullWidth * 0.3), Math.round(fullWidth * 0.7)];
   const stringify = (v: unknown): string => {
     if (Array.isArray(v)) return v.map((x) => String(x)).join(", ");
     if (v !== null && typeof v === "object") return JSON.stringify(v);
@@ -536,6 +550,7 @@ export function renderFrontmatterTable(frontmatter: Record<string, unknown>): Ta
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths,
     borders: { top: b, bottom: b, left: b, right: b, insideHorizontal: b, insideVertical: b },
     rows,
   });
