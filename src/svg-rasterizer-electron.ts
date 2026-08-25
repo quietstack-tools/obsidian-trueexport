@@ -33,6 +33,8 @@
 // runtime lazily requires the real modules and is only ever constructed on
 // desktop.
 
+import { isWellFormedSvg } from "./core/util/svg";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** An off-screen window that can load a local file and capture it as a PNG. */
@@ -184,21 +186,6 @@ function wrapSvgHtml(svgText: string): string {
  * setting — judged not worth that trade-off for a cosmetic sharpness
  * variance across host machines.
  */
-/**
- * A minimal well-formedness check: is there an `<svg …>` (or self-closing
- * `<svg …/>`) root tag anywhere in the text? Loading arbitrary non-SVG
- * content (e.g. a plain text file renamed to .svg) into the off-screen
- * window below doesn't throw — Chromium happily renders it as literal text
- * — so without this check a corrupt/invalid SVG silently "succeeds",
- * producing a meaningless captured image with none of the
- * warning-and-placeholder degradation the rest of the pipeline expects for
- * a failed rasterisation (§4.9). This mirrors that same requirement for the
- * genuinely-corrupt-file case, not just genuine rendering/canvas failures.
- */
-function isWellFormedSvg(text: string): boolean {
-  return /<svg[\s>]/i.test(text);
-}
-
 export function createElectronSvgRasterizer(
   runtime: SvgRasterRuntime = defaultSvgRasterRuntime(),
 ): (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer; width: number; height: number }> {

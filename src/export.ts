@@ -348,14 +348,14 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
     bytes = await renderDocx(doc, options, { deps, pro, warnings, referenceStyles });
     binary = true;
   } else if (format === "html") {
-    text = renderHtml(doc, options, { pro });
+    text = renderHtml(doc, options, { pro, warnings, sourcePath });
     binary = false;
   } else if (format === "pdf") {
     // The seam is only provided on desktop, so its absence means mobile (§7.5).
     if (!deps?.htmlToPdf) {
       throw new Error("PDF export is only available on desktop. Use Word or HTML on mobile.");
     }
-    const html = renderHtml(doc, options, { pro });
+    const html = renderHtml(doc, options, { pro, warnings, sourcePath });
     bytes = await renderPdf(
       html,
       {

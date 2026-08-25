@@ -24,7 +24,9 @@ import type {
 import type { ExportOptions } from "../core/options";
 import { parseLatex } from "../math/parse";
 import { safeExternalUrl } from "../core/util/url";
+import { isWellFormedSvg } from "../core/util/svg";
 import { tokenizeLine } from "../core/highlight";
+import type { WarningCollector } from "../core/warnings";
 import { mathmlDocument } from "./math";
 import { buildCss } from "./css";
 import { sanitizeRawHtml } from "./sanitize";
@@ -34,6 +36,15 @@ export interface HtmlRenderOptions {
   pro?: boolean;
   /** Document language for <html lang>. Defaults to "en". */
   lang?: string;
+  /**
+   * Collector for degradation warnings raised during rendering — currently a
+   * corrupt/invalid embedded SVG (§D20), mirroring the DOCX renderer's
+   * rasterisation-failure warning. Optional so pure-render tests/callers that
+   * don't need warnings can omit it.
+   */
+  warnings?: WarningCollector;
+  /** Source note path, attached to any warning raised here. */
+  sourcePath?: string;
 }
 
 const ATTRIBUTION = "TrueExport — quietstack.tools";
@@ -49,7 +60,28 @@ const CSP = [
   "form-action 'none'",
 ].join("; ");
 
+// Module-scoped, set for the duration of a single (fully synchronous)
+// renderHtml() call so the many block/inline render helpers below don't all
+// need a context parameter threaded through them — mirrors the DOCX
+// renderer's RenderContext, just passed differently since this renderer's
+// call tree is plain recursive functions rather than one that carries a
+// context object. Safe because renderHtml() never yields to the event loop
+// mid-call, so no two renders can interleave.
+let currentWarnings: WarningCollector | undefined;
+let currentSourcePath: string | undefined;
+
 export function renderHtml(doc: IdmDocument, options: ExportOptions, render: HtmlRenderOptions = {}): string {
+  currentWarnings = render.warnings;
+  currentSourcePath = render.sourcePath;
+  try {
+    return renderDocument(doc, options, render);
+  } finally {
+    currentWarnings = undefined;
+    currentSourcePath = undefined;
+  }
+}
+
+function renderDocument(doc: IdmDocument, options: ExportOptions, render: HtmlRenderOptions): string {
   const lang = render.lang ?? "en";
   const body: string[] = [];
 
@@ -356,15 +388,45 @@ function renderFrontmatterTable(frontmatter: Record<string, unknown>): string {
 
 // ---- Media / helpers ----
 
+function svgFileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * A corrupt/invalid embedded SVG (e.g. a plain text file renamed to .svg)
+ * must degrade to a placeholder + warning here too, not just in the DOCX
+ * renderer's rasterisation step (§D20) — unlike DOCX, HTML/PDF embed SVGs
+ * directly rather than rasterising them, so this is the only place in this
+ * renderer that ever looks at the SVG's actual content.
+ */
+function isCorruptSvg(resource: MediaResource): boolean {
+  if (resource.kind !== "binary" || !resource.data) return false;
+  if (resource.mimeType !== "image/svg+xml") return false;
+  return !isWellFormedSvg(new TextDecoder().decode(resource.data));
+}
+
+function warnCorruptSvg(resource: MediaResource): void {
+  currentWarnings?.add({
+    construct: "image",
+    message: `Couldn't process the SVG "${svgFileName(resource.originalPath)}" — invalid or corrupt content; shown as a placeholder.`,
+    sourcePath: currentSourcePath ?? "",
+  });
+}
+
 function dataUri(resource: MediaResource): string | null {
   if (resource.kind !== "binary" || !resource.data) return null;
+  if (isCorruptSvg(resource)) {
+    warnCorruptSvg(resource);
+    return null;
+  }
   const mime = resource.mimeType ?? "application/octet-stream";
   return `data:${mime};base64,${toBase64(resource.data)}`;
 }
 
 function placeholder(resource: MediaResource): string {
-  const name = resource.originalPath.slice(resource.originalPath.lastIndexOf("/") + 1);
+  const name = svgFileName(resource.originalPath);
   if (resource.kind === "remote-blocked") return `[Remote image not embedded: ${name}]`;
+  if (isCorruptSvg(resource)) return `[SVG image: ${name}]`;
   return `[Image not found: ${name}]`;
 }
 
