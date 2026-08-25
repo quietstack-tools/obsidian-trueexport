@@ -52,7 +52,23 @@ body {
   margin: 0;
   background: #ffffff;
   color: #1a1a1a;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /*
+   * CJK characters were confirmed dropped entirely from PDF output (not
+   * just tofu/wrong-glyph — genuinely absent from the extracted text), even
+   * though the same HTML source renders them correctly in an ordinary
+   * browser tab. Ordinary on-screen rendering falls back to whatever
+   * system font actually has the glyph even when it isn't in this list,
+   * but Electron's printToPDF runs through Chromium's print pipeline in an
+   * off-screen (show:false) window, where that implicit last-resort
+   * fallback isn't reliable. Listing common CJK system fonts explicitly —
+   * after the Latin-preferred fonts, so those still win for Latin text —
+   * makes the browser's normal (non-fallback-dependent) font matching pick
+   * a CJK-capable font directly instead of depending on print-path-specific
+   * fallback behaviour.
+   */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    "PingFang SC", "PingFang TC", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans CJK TC",
+    "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
   line-height: 1.6;
 }
 article.trueexport { max-width: 45rem; margin: 0 auto; padding: 2.5rem 1.25rem; }
@@ -76,6 +92,11 @@ pre code { background: none; padding: 0; font-size: 0.85em; }
 .tok-number { color: #098658; }
 .tok-function { color: #795e26; }
 blockquote { margin: 1em 0; padding: 0.2em 1em; border-left: 4px solid #ccc; color: #555; }
+/* Embedded/transcluded content (§4.3) — a left border marking transcluded
+   content, distinct from callout/blockquote styling. Matches the DOCX
+   renderer's COLORS.embedBorder (#8C8C8C), deliberately distinct from both
+   the blockquote border colour and every callout accent colour. */
+.embedded { border-left: 3px solid #8c8c8c; padding-left: 0.75em; }
 table { border-collapse: collapse; width: 100%; margin: 1em 0; }
 th, td { border: 1px solid #ccc; padding: 0.4em 0.6em; }
 th { background: #f5f5f5; }
@@ -120,9 +141,30 @@ li.task input { margin-right: 0.4em; }
 @media print {
   body { background: #fff; color: #000; }
   article.trueexport { max-width: none; padding: 0; }
-  a { color: #000; }
+  /*
+   * NOT plain black: PDF export goes through this exact print media query
+   * (Electron's printToPDF), and this plugin has no separate "print to
+   * paper" feature distinct from "export to PDF" — @media print here
+   * always means the PDF export path. Confirmed: links were rendering
+   * with no visual distinction at all (black, no underline) despite still
+   * being clickable, unlike Word/Pages/Google Docs, which all style links
+   * visibly. Blue + underlined matches the DOCX renderer's own convention
+   * (Word's built-in "Hyperlink" character style, applied via
+   * ExternalHyperlink/InternalHyperlink in src/docx/inline.ts).
+   */
+  a { color: #0b66c3; text-decoration: underline; }
   pre, blockquote, .callout, figure, table { break-inside: avoid; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  /*
+   * The footnote "jump back to reference" arrow (↩) is genuinely useful in
+   * an interactive HTML document — but Chromium's printToPDF does not
+   * reliably carry internal #anchor links over as clickable PDF links, so
+   * in the exported PDF it was confirmed to appear as an inert, non-
+   * functional stray glyph directly under the footnote text. Hidden only
+   * for the PDF/print path; the actual HTML export keeps it, since it's a
+   * working link there.
+   */
+  .footnote-back { display: none; }
 }
 `.trim();
 }

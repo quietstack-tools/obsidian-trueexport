@@ -130,12 +130,19 @@ function renderBlock(block: BlockNode): string {
   switch (block.type) {
     case "heading": {
       const id = block.id ? ` id="${escapeAttr(block.id)}"` : "";
+      // "embedded" (§4.3): a left border marking transcluded content,
+      // distinct from callout/blockquote styling — matching the DOCX
+      // renderer's left-border treatment for the same blocks (added
+      // earlier to DOCX only; PDF/HTML share this renderer, so needed here
+      // too for parity).
+      const cls = block.embedded ? ` class="embedded"` : "";
       // dir="auto" lets the browser's bidi algorithm handle RTL text (§4.1).
-      return `<h${block.level}${id} dir="auto">${renderInline(block.children)}</h${block.level}>`;
+      return `<h${block.level}${id}${cls} dir="auto">${renderInline(block.children)}</h${block.level}>`;
     }
     case "paragraph": {
       const id = block.blockId ? ` id="${escapeAttr(block.blockId)}"` : "";
-      return `<p${id} dir="auto">${renderInline(block.children)}</p>`;
+      const cls = block.embedded ? ` class="embedded"` : "";
+      return `<p${id}${cls} dir="auto">${renderInline(block.children)}</p>`;
     }
     case "list":
       return renderList(block);

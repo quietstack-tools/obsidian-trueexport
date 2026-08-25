@@ -86,6 +86,20 @@ describe("HTML content", () => {
     const { html } = await renderToHtml("<div>raw</div>");
     expect(html).toContain("<div>raw</div>");
   });
+
+  it("preserves CJK text in the rendered HTML", async () => {
+    const { html } = await renderToHtml("Café 中文 🎉");
+    expect(html).toContain("中文");
+  });
+
+  it("gives embedded/transcluded content an 'embedded' class distinct from native content", async () => {
+    const { html } = await renderToHtml("Native paragraph.\n\n![[Other]]", {
+      notes: { "Main.md": "", "Other.md": "# Embedded Heading\n\nEmbedded body." },
+    });
+    expect(html).toContain('<p dir="auto">Native paragraph.</p>');
+    expect(html).toContain('class="embedded" dir="auto">Embedded Heading');
+    expect(html).toContain('<p class="embedded" dir="auto">Embedded body.</p>');
+  });
 });
 
 describe("HTML frontmatter and attribution", () => {
