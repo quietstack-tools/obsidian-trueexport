@@ -329,7 +329,7 @@ function toStyle(run: RefRunProps | undefined, paragraph: RefParaProps | undefin
 }
 
 /** Merge two RefStyles field-by-field; `over` wins where it defines a value. */
-function mergeStyles(base: RefStyle | undefined, over: RefStyle | undefined): RefStyle | undefined {
+export function mergeStyles(base: RefStyle | undefined, over: RefStyle | undefined): RefStyle | undefined {
   if (!base) return over;
   if (!over) return base;
   const run = { ...base.run, ...over.run };

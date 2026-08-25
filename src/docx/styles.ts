@@ -13,6 +13,9 @@ import {
   type ISpacingProperties,
 } from "docx";
 import type { RefParaProps, RefRunProps, RefStyle, ReferenceStyles } from "./reference-styles";
+import { mergeStyles } from "./reference-styles";
+import type { TemplateId } from "../core/options";
+import { templateStyles } from "./templates";
 
 export const BODY_FONT = "Calibri";
 export const HEADING_FONT = "Calibri Light";
@@ -109,14 +112,29 @@ const BUILTIN = {
 } satisfies Record<string, RefStyle>;
 
 /**
- * Build the Word style table. When `ref` (extracted from a reference .docx) is
- * supplied, its values override the built-in table field-by-field; anything the
- * reference doesn't define keeps its built-in value (§5.1).
+ * Build the Word style table, layering three levels over the §5.1 BUILTIN
+ * table: the selected template's overrides (§8), then a reference .docx's
+ * overrides on top of those (extracted from a Pro user's reference .docx).
+ * Anything neither defines keeps its built-in value.
  */
-export function buildStyles(ref: ReferenceStyles = {}): IStylesOptions {
-  const normal = resolve(BUILTIN.normal, ref.normal);
+export function buildStyles(template: TemplateId, ref: ReferenceStyles = {}): IStylesOptions {
+  const tmpl = templateStyles(template);
+  const effective: ReferenceStyles = {
+    normal: mergeStyles(tmpl.normal, ref.normal),
+    heading1: mergeStyles(tmpl.heading1, ref.heading1),
+    heading2: mergeStyles(tmpl.heading2, ref.heading2),
+    heading3: mergeStyles(tmpl.heading3, ref.heading3),
+    heading4: mergeStyles(tmpl.heading4, ref.heading4),
+    heading5: mergeStyles(tmpl.heading5, ref.heading5),
+    heading6: mergeStyles(tmpl.heading6, ref.heading6),
+    quote: mergeStyles(tmpl.quote, ref.quote),
+    caption: mergeStyles(tmpl.caption, ref.caption),
+    code: mergeStyles(tmpl.code, ref.code),
+  };
+
+  const normal = resolve(BUILTIN.normal, effective.normal);
   // A reference "Code" style informs both the inline Code run and the code block.
-  const codeRun = { run: { ...BUILTIN.code.run, ...ref.code?.run } };
+  const codeRun = { run: { ...BUILTIN.code.run, ...effective.code?.run } };
   const codeBlock = resolve(BUILTIN.codeBlock, codeRun);
 
   return {
@@ -125,12 +143,12 @@ export function buildStyles(ref: ReferenceStyles = {}): IStylesOptions {
         run: docxRun(normal.run, true),
         paragraph: { spacing: docxSpacing(normal.paragraph) },
       },
-      heading1: headingStyle(BUILTIN.heading1, ref.heading1),
-      heading2: headingStyle(BUILTIN.heading2, ref.heading2),
-      heading3: headingStyle(BUILTIN.heading3, ref.heading3),
-      heading4: headingStyle(BUILTIN.heading4, ref.heading4),
-      heading5: headingStyle(BUILTIN.heading5, ref.heading5),
-      heading6: headingStyle(BUILTIN.heading6, ref.heading6),
+      heading1: headingStyle(BUILTIN.heading1, effective.heading1),
+      heading2: headingStyle(BUILTIN.heading2, effective.heading2),
+      heading3: headingStyle(BUILTIN.heading3, effective.heading3),
+      heading4: headingStyle(BUILTIN.heading4, effective.heading4),
+      heading5: headingStyle(BUILTIN.heading5, effective.heading5),
+      heading6: headingStyle(BUILTIN.heading6, effective.heading6),
     },
     paragraphStyles: [
       {
@@ -139,14 +157,14 @@ export function buildStyles(ref: ReferenceStyles = {}): IStylesOptions {
         basedOn: "Normal",
         next: "Normal",
         quickFormat: true,
-        ...styleProps(resolve(BUILTIN.quote, ref.quote)),
+        ...styleProps(resolve(BUILTIN.quote, effective.quote)),
       },
       {
         id: "Caption",
         name: "Caption",
         basedOn: "Normal",
         next: "Normal",
-        ...styleProps(resolve(BUILTIN.caption, ref.caption)),
+        ...styleProps(resolve(BUILTIN.caption, effective.caption)),
       },
       {
         id: "CodeBlock",
@@ -159,7 +177,7 @@ export function buildStyles(ref: ReferenceStyles = {}): IStylesOptions {
       {
         id: "Code",
         name: "Code",
-        run: docxRun(resolve(BUILTIN.code, ref.code).run),
+        run: docxRun(resolve(BUILTIN.code, effective.code).run),
       },
     ],
   };

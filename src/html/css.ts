@@ -4,6 +4,13 @@
 // system font stack, a 45rem centred column, dark-mode via prefers-color-scheme
 // and print rules so browser-print produces a decent result (§5.2). Colours and
 // spacing are TrueExport's judgment — only the structural rules above are fixed.
+//
+// Font, heading colour and paragraph rhythm are parameterised per §8 template
+// (see templates.ts) — everything else (layout, callouts, dark mode, print)
+// is shared across all four.
+
+import type { TemplateId } from "../core/options";
+import { htmlTemplateStyle } from "./templates";
 
 /** Callout colours (§4.4); every known type maps onto one of the eight. */
 const CALLOUT_COLORS: Record<string, string> = {
@@ -44,7 +51,8 @@ function calloutRules(): string {
     .join("\n");
 }
 
-export function buildCss(): string {
+export function buildCss(template: TemplateId = "default"): string {
+  const t = htmlTemplateStyle(template);
   return `
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
@@ -66,20 +74,18 @@ body {
    * a CJK-capable font directly instead of depending on print-path-specific
    * fallback behaviour.
    */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    "PingFang SC", "PingFang TC", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans CJK TC",
-    "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
-  line-height: 1.6;
+  font-family: ${t.bodyFont};
+  line-height: ${t.lineHeight};
 }
 article.trueexport { max-width: 45rem; margin: 0 auto; padding: 2.5rem 1.25rem; }
-h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
+h1, h2, h3, h4, h5, h6 { font-family: ${t.headingFont}; color: ${t.headingColor}; line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
 h1 { font-size: 2rem; }
 h2 { font-size: 1.6rem; }
 h3 { font-size: 1.3rem; }
 h4 { font-size: 1.1rem; }
 h5 { font-size: 1rem; }
 h6 { font-size: 0.9rem; color: #666; }
-p { margin: 0 0 1em; }
+p { margin: ${t.paragraphMargin}; text-indent: ${t.paragraphIndent}; }
 a { color: #0b66c3; text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 0.1em 0.3em; border-radius: 3px; }
@@ -121,6 +127,10 @@ li.task input { margin-right: 0.4em; }
 .footnote-ref a, .footnote-back { text-decoration: none; }
 @media (prefers-color-scheme: dark) {
   body { background: #1e1e1e; color: #e0e0e0; }
+  /* Template heading colours (§8) are tuned for a light background; on dark
+     they'd read as low-contrast near-black text, so fall back to inherited
+     (light) body text colour instead — same as before templates had colour. */
+  h1, h2, h3, h4, h5 { color: inherit; }
   a { color: #5aa9ff; }
   code { background: rgba(255,255,255,0.1); }
   pre { background: #2a2a2a; }

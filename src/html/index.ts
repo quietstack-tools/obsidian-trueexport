@@ -70,7 +70,7 @@ export function renderHtml(doc: IdmDocument, options: ExportOptions, render: Htm
     `<title>${escapeHtml(doc.title)}</title>`,
     ...metaTags(doc, options),
     render.pro ? "" : `<meta name="generator" content="${ATTRIBUTION}">`,
-    `<style>\n${buildCss()}\n</style>`,
+    `<style>\n${buildCss(options.template)}\n</style>`,
   ].filter((line) => line !== "");
 
   return `<!DOCTYPE html>

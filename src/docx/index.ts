@@ -89,7 +89,7 @@ export async function renderDocx(
     title: documentTitle(doc, options),
     description: documentDescription(doc, options, render.pro ?? false),
     keywords: documentKeywords(doc, options),
-    styles: buildStyles(render.referenceStyles),
+    styles: buildStyles(options.template, render.referenceStyles),
     numbering: { config: ctx.numbering.configs },
     footnotes: Object.keys(footnotes).length > 0 ? footnotes : undefined,
     sections: [{ properties: pageProperties(options), children: bodyChildren }],
