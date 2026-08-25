@@ -18,6 +18,31 @@
 // orchestration (temp file → loadFile → printToPDF → cleanup) is unit-testable
 // without Electron; the default runtime lazily requires the real modules and is
 // only ever constructed on desktop, where main.ts wires this seam.
+//
+// Known, accepted limitation (manual testing, D16): CJK characters (Chinese,
+// Japanese, Korean, and likely other non-Latin scripts) can be silently
+// dropped from PDF output — not mis-rendered as tofu, genuinely absent from
+// the printed page and from the PDF's extracted text. Debug tracing confirmed
+// the text is fully intact in the HTML string all the way up to the
+// `printToPDF()` call itself, so this is not a bug anywhere in TrueExport's
+// own parsing/rendering pipeline — it's a known, unresolved upstream
+// Electron/Chromium bug in webContents.printToPDF() itself:
+// https://github.com/electron/electron/issues/23344. Two workarounds were
+// investigated and both proved infeasible:
+//   (a) tagging CJK text runs with an explicit lang="zh" span (src/html/index.ts,
+//       wrapCjk()) — kept in place as harmless (may help other consumers of
+//       the HTML export, and costs nothing), but did not fix PDF output.
+//   (b) an explicit @font-face pointing at a real CJK system font file —
+//       rejected outright: on macOS the only reachable CJK fonts are .ttc
+//       collections, which @font-face's src:url() doesn't parse; the files
+//       are tens of megabytes, too large to embed in a self-contained
+//       export; redistributing Apple's proprietary font binary raises its
+//       own licensing problem; and none of this generalises to Windows/Linux,
+//       whose font layouts are entirely different.
+// Affected: PDF export only. DOCX, HTML, and every other export format
+// correctly preserve CJK text (confirmed by manual testing this session).
+// Not something to chase further from TrueExport's side short of upstream
+// Electron fixing printToPDF.
 
 import type { HtmlToPdf, PdfPrintOptions } from "./index";
 
