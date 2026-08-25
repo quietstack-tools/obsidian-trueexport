@@ -92,6 +92,16 @@ describe("HTML content", () => {
     expect(html).toContain("中文");
   });
 
+  it("wraps CJK runs in an explicit lang=\"zh\" span (workaround for electron/electron#23344)", async () => {
+    const { html } = await renderToHtml("Café 中文 🎉");
+    expect(html).toContain('<span lang="zh">中文</span>');
+  });
+
+  it("does not wrap non-CJK text in a lang span", async () => {
+    const { html } = await renderToHtml("plain latin text");
+    expect(html).not.toContain("<span lang=");
+  });
+
   it("gives embedded/transcluded content an 'embedded' class distinct from native content", async () => {
     const { html } = await renderToHtml("Native paragraph.\n\n![[Other]]", {
       notes: { "Main.md": "", "Other.md": "# Embedded Heading\n\nEmbedded body." },

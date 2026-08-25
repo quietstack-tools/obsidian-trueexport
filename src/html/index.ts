@@ -259,7 +259,7 @@ function renderMath(latex: string, block: boolean): string {
 function renderInlineNode(node: InlineNode): string {
   switch (node.type) {
     case "text":
-      return escapeHtml(node.value);
+      return wrapCjk(escapeHtml(node.value));
     case "emphasis":
       return `<em>${renderInline(node.children)}</em>`;
     case "strong":
@@ -399,6 +399,20 @@ function escapeHtml(text: string): string {
 
 function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+// CJK (Han/Hiragana/Katakana/Hangul) runs, wrapped in an explicit lang="zh".
+// Workaround for a longstanding, unresolved Electron/Chromium bug where
+// webContents.printToPDF() silently drops CJK glyphs that render fine
+// on-screen (electron/electron#23344) — apparently the print pipeline's
+// script/font-fallback detection doesn't run the same way plain on-screen
+// rendering does, but respects an explicit lang attribute. Runs on
+// already-HTML-escaped text, which is safe: none of these scripts contain
+// &, <, > or ".
+const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+)/gu;
+
+function wrapCjk(escaped: string): string {
+  return escaped.replace(CJK_RUN, '<span lang="zh">$1</span>');
 }
 
 /**
