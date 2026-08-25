@@ -44,6 +44,25 @@ describe("TrueExportPlugin.onload", () => {
     expect((off as unknown as { ribbons: unknown[] }).ribbons.length).toBe(0);
   });
 
+  it("adds/removes the ribbon icon live when the setting is toggled at runtime (no restart needed)", async () => {
+    const plugin = makePlugin();
+    await plugin.onload();
+    const ribbons = (plugin as unknown as { ribbons: unknown[] }).ribbons;
+    expect(ribbons.length).toBe(1);
+
+    plugin.settings.showRibbonIcon = false;
+    plugin.updateRibbonIcon();
+    expect(ribbons.length).toBe(0);
+
+    plugin.settings.showRibbonIcon = true;
+    plugin.updateRibbonIcon();
+    expect(ribbons.length).toBe(1);
+
+    // Calling it again while already in the desired state doesn't duplicate/leak.
+    plugin.updateRibbonIcon();
+    expect(ribbons.length).toBe(1);
+  });
+
   it("merges saved settings over defaults", async () => {
     const plugin = makePlugin();
     await plugin.onload();

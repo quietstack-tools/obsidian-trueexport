@@ -45,6 +45,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   licence!: LicenceManager;
   private adapter!: VaultAdapter;
   private deps!: ExportDeps;
+  private ribbonIconEl: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -128,13 +129,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       }),
     );
 
-    if (this.settings.showRibbonIcon) {
-      this.addRibbonIcon("file-output", "Export with TrueExport", () => {
-        const file = this.activeMarkdownFile();
-        if (file) this.openExportModal(file);
-        else new Notice("Open a note to export it.");
-      });
-    }
+    this.updateRibbonIcon();
 
     this.addSettingTab(new TrueExportSettingTab(this.app, this));
   }
@@ -197,6 +192,28 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       onProgress,
       signal,
     });
+  }
+
+  /**
+   * Adds or removes the ribbon icon to match the current "Show ribbon icon"
+   * setting — called on load and again from the settings tab whenever the
+   * toggle changes, so it takes effect immediately without an Obsidian
+   * restart. Obsidian has no removeRibbonIcon(); the documented pattern is
+   * calling .remove() on the element addRibbonIcon() returned.
+   */
+  updateRibbonIcon(): void {
+    if (this.settings.showRibbonIcon) {
+      if (!this.ribbonIconEl) {
+        this.ribbonIconEl = this.addRibbonIcon("file-output", "Export with TrueExport", () => {
+          const file = this.activeMarkdownFile();
+          if (file) this.openExportModal(file);
+          else new Notice("Open a note to export it.");
+        });
+      }
+    } else if (this.ribbonIconEl) {
+      this.ribbonIconEl.remove();
+      this.ribbonIconEl = null;
+    }
   }
 
   // ---- helpers ----

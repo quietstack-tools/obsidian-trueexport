@@ -237,7 +237,17 @@ export class Plugin {
   }
   addRibbonIcon(icon: string, title: string, cb: (e: MouseEvent) => void) {
     const el = document.createElement("div");
-    this.ribbons.push({ icon, title, cb, el });
+    const entry = { icon, title, cb, el };
+    this.ribbons.push(entry);
+    // Real Obsidian has no removeRibbonIcon(); the documented pattern is
+    // calling .remove() on the returned element. Mirror that here so tests
+    // can assert dynamic add/remove via the same call the real code makes.
+    const nativeRemove = el.remove.bind(el);
+    el.remove = () => {
+      nativeRemove();
+      const idx = this.ribbons.indexOf(entry);
+      if (idx !== -1) this.ribbons.splice(idx, 1);
+    };
     return el;
   }
   addSettingTab(tab: any) {
@@ -351,7 +361,27 @@ export class TextComponent extends ValueComponent<string> {
 }
 
 export class ToggleComponent extends ValueComponent<boolean> {
+  inputEl = document.createElement("input");
+  constructor() {
+    super();
+    this.inputEl.type = "checkbox";
+  }
   setTooltip() {
+    return this;
+  }
+  setValue(v: boolean) {
+    super.setValue(v);
+    this.inputEl.checked = v;
+    return this;
+  }
+  onChange(cb: (v: boolean) => void) {
+    super.onChange(cb);
+    this.inputEl.addEventListener("change", () => cb(this.inputEl.checked));
+    return this;
+  }
+  setDisabled(d: boolean) {
+    super.setDisabled(d);
+    this.inputEl.disabled = d;
     return this;
   }
 }
@@ -466,6 +496,7 @@ export class Setting {
   }
   addToggle(cb: (c: ToggleComponent) => void) {
     const c = new ToggleComponent();
+    this.controlEl.appendChild(c.inputEl);
     cb(c);
     this.components.push(c);
     return this;

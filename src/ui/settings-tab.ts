@@ -23,6 +23,8 @@ export interface SettingsHost {
   settings: TrueExportSettings;
   saveSettings(): Promise<void>;
   licence: LicenceManager;
+  /** Adds/removes the ribbon icon to match the current setting, live. */
+  updateRibbonIcon(): void;
 }
 
 const PAGE_SIZES: Record<PageSize, string> = { A4: "A4", Letter: "Letter", Legal: "Legal" };
@@ -121,6 +123,7 @@ export class TrueExportSettingTab extends PluginSettingTab {
       tg.setValue(s.showRibbonIcon).onChange((v) => {
         s.showRibbonIcon = v;
         save();
+        this.host.updateRibbonIcon();
       }),
     );
 

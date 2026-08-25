@@ -13,11 +13,13 @@ function makeTab(activated = false) {
   const host = {
     settings: { ...DEFAULT_SETTINGS },
     saveSettings: vi.fn(async () => {}),
+    updateRibbonIcon: vi.fn(),
     manifest: { version: "1.2.3" },
     licence,
   } as unknown as SettingsHost & {
     manifest: { version: string };
     saveSettings: ReturnType<typeof vi.fn>;
+    updateRibbonIcon: ReturnType<typeof vi.fn>;
     licence: typeof licence;
   };
   // The mock PluginSettingTab constructor accepts any plugin-like object.
@@ -99,6 +101,17 @@ describe("TrueExportSettingTab", () => {
     input.dispatchEvent(new Event("input"));
     expect(host.settings.transclusionDepth).toBe(3);
     expect(host.saveSettings).toHaveBeenCalled();
+  });
+
+  it("applies the ribbon icon live when the 'Show ribbon icon' toggle changes", () => {
+    const { tab, host } = makeTab();
+    tab.display();
+    const toggle = findSetting(tab, "Show ribbon icon").querySelector('input[type="checkbox"]') as HTMLInputElement;
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event("change"));
+    expect(host.settings.showRibbonIcon).toBe(false);
+    expect(host.saveSettings).toHaveBeenCalled();
+    expect(host.updateRibbonIcon).toHaveBeenCalled();
   });
 });
 
