@@ -46,6 +46,31 @@ describe("DOCX SVG rasterisation failure", () => {
     expect(imageWarnings[0].message).toContain("diagram.svg");
   });
 
+  it("degrades a corrupt/invalid embedded SVG (not a Mermaid diagram) to a placeholder + warning too", async () => {
+    // Same rasterizeSvg deps contract the real Electron rasterizer follows
+    // post-fix: it rejects non-SVG content rather than silently rendering it.
+    const warnings = new WarningCollector();
+    const corruptAwareRasterizer: DocxDeps = {
+      rasterizeSvg: async () => {
+        throw new Error("Invalid or corrupt SVG content");
+      },
+    };
+    const CORRUPT_SVG = textToArrayBuffer("this is just plain text, not an SVG");
+
+    const result = await renderToDocx(
+      SOURCE,
+      { binaries: { "diagram.svg": CORRUPT_SVG } },
+      { deps: corruptAwareRasterizer, warnings },
+    );
+
+    expect(result.documentXml).toContain("Intro paragraph.");
+    expect(result.documentXml).toContain("SVG image");
+
+    const imageWarnings = warnings.list().filter((w) => w.construct === "image");
+    expect(imageWarnings).toHaveLength(1);
+    expect(imageWarnings[0].message).toContain("diagram.svg");
+  });
+
   it("still embeds the raster PNG when rasterisation succeeds", async () => {
     const warnings = new WarningCollector();
     const okRasterizer: DocxDeps = {

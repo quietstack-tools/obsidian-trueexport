@@ -111,4 +111,17 @@ describe("createElectronSvgRasterizer", () => {
     expect(failingCalls.destroyed).toBe(true);
     expect(failingCalls.removed).toBe(failingCalls.tempPath);
   });
+
+  it("rejects invalid/corrupt SVG content instead of silently rendering it as text", async () => {
+    // A plain text file renamed to .svg: Chromium would happily render this
+    // as literal text with no exception, so this must be caught explicitly
+    // (§D20) rather than "succeeding" with a meaningless capture.
+    const { runtime, calls } = fakeRuntime();
+    const notAnSvg = new TextEncoder().encode("just some plain text, not markup at all").buffer;
+
+    await expect(createElectronSvgRasterizer(runtime)(notAnSvg, 2)).rejects.toThrow(/invalid|corrupt/i);
+    // Rejected before ever opening a window / touching the filesystem.
+    expect(runtime.openWindow).not.toHaveBeenCalled();
+    expect(calls.loadedFile).toBeUndefined();
+  });
 });
