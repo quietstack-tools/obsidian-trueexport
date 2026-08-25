@@ -27,8 +27,14 @@
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
   border-radius: 4px;
-  background: var(--background-modifier-error-hover, rgba(233, 49, 71, 0.1));
-  color: var(--text-warning, #c0761a);
+  /* Light amber background + normal (dark) text + an amber accent border —
+     matches the post-export "⚠ N items need attention" warning convention
+     (amber icon/text on the default, light background) instead of the
+     previous yellow-on-red combination, which had poor contrast and is a
+     known-problematic pairing for some forms of colour vision deficiency. */
+  background: rgba(224, 124, 32, 0.12);
+  border-left: 3px solid var(--text-warning, #c0761a);
+  color: var(--text-normal);
   cursor: pointer;
 }
 
