@@ -145,7 +145,12 @@ function pageProperties(options: ExportOptions) {
 
 // ---- SVG rasterisation pass ----
 
-function collectResources(
+/**
+ * Exported so scanNote() (export.ts) can reuse the same walk to run a
+ * lighter-weight, rasterisation-free SVG well-formedness pre-check — see the
+ * doc comment on checkSvgWellFormedness in export.ts for why.
+ */
+export function collectResources(
   blocks: BlockNode[],
   footnotes: IdmDocument["footnotes"],
 ): MediaResource[] {

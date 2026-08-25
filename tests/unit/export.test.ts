@@ -207,6 +207,44 @@ describe("scanNote", () => {
     await scanNote(remoteAdapter, { ...settings(), allowRemoteImages: true }, "R.md");
     expect(fetchRemoteImage).not.toHaveBeenCalled();
   });
+
+  it("still never fetches remote images even when deps (containing a fetcher) ARE passed", async () => {
+    // scanNote now threads deps through for mermaidToSvg (§D20 follow-up) —
+    // this guards that fetchRemoteImage specifically is still stripped out
+    // before reaching buildDocument, so passing deps for Mermaid doesn't
+    // accidentally re-enable network access from a pre-scan.
+    const fetchRemoteImage = vi.fn(async () => ({ data: new ArrayBuffer(1), mimeType: "image/png" }));
+    const remoteAdapter = new MemoryVaultAdapter({ notes: { "R.md": "![x](https://e.com/a.png)" } });
+    await scanNote(remoteAdapter, { ...settings(), allowRemoteImages: true }, "R.md", "html", "default", {
+      fetchRemoteImage,
+    });
+    expect(fetchRemoteImage).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a Mermaid render failure, same as a real export would", async () => {
+    const source = "```mermaid\nnot a real diagram\n```\n";
+    const mermaidAdapter = new MemoryVaultAdapter({ notes: { "M.md": source } });
+    const mermaidToSvg = vi.fn(async () => {
+      throw new Error("parse error");
+    });
+    const found = await scanNote(mermaidAdapter, settings(), "M.md", "html", "default", { mermaidToSvg });
+    expect(mermaidToSvg).toHaveBeenCalled();
+    expect(found.some((w) => w.construct === "mermaid")).toBe(true);
+  });
+
+  it("surfaces a corrupt/invalid embedded SVG without rasterising it", async () => {
+    const source = "![[broken.svg]]\n";
+    const svgAdapter = new MemoryVaultAdapter({
+      notes: { "S.md": source },
+      binaries: { "broken.svg": new TextEncoder().encode("not an svg at all").buffer },
+    });
+    const rasterizeSvg = vi.fn(async () => ({ data: new ArrayBuffer(1), width: 1, height: 1 }));
+    const found = await scanNote(svgAdapter, settings(), "S.md", "docx", "default", { rasterizeSvg });
+    // The (deliberately not invoked) rasteriser is never reached from a scan.
+    expect(rasterizeSvg).not.toHaveBeenCalled();
+    const imageWarnings = found.filter((w) => w.construct === "image");
+    expect(imageWarnings.some((w) => w.message.toLowerCase().includes("broken.svg"))).toBe(true);
+  });
 });
 
 describe("remote images (§7.6) at the export level", () => {

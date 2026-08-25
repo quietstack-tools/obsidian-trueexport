@@ -151,7 +151,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   }
 
   async scan(sourcePath: string, format: ExportFormat, template: TemplateId): Promise<ExportWarning[]> {
-    return scanNote(this.adapter, this.settings, sourcePath, format, template);
+    return scanNote(this.adapter, this.settings, sourcePath, format, template, this.deps);
   }
 
   async runExport(sourcePath: string, format: ExportFormat, template: TemplateId): Promise<void> {

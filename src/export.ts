@@ -13,10 +13,11 @@ import { parseMarkdown } from "./core/parser";
 import { resolveDocument } from "./core/resolver";
 import { parseLatex } from "./math/parse";
 import type { RemoteImageFetcher } from "./core/resolver/context";
-import { renderDocx, type DocxDeps } from "./docx";
+import { renderDocx, collectResources, type DocxDeps } from "./docx";
 import { parseReferenceStyles, type ReferenceStyles } from "./docx/reference-styles";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
+import { isWellFormedSvg } from "./core/util/svg";
 import {
   FORMAT_EXTENSIONS,
   renderFilename,
@@ -241,17 +242,65 @@ function sanitizeHtmlBlocks(blocks: BlockNode[], deps?: ExportDeps): BlockNode[]
   return walk(blocks);
 }
 
-/** Pre-scan a note for warnings without rendering (drives the modal's row). */
+/**
+ * Check every embedded SVG for well-formedness, without rasterising any of
+ * them (§D20). Used by scanNote() as the deliberately cheap half of making
+ * the pre-export preview representative of a corrupt-SVG export: actually
+ * rasterising (rasterizeSvgs in src/docx/index.ts) spins up a real
+ * off-screen Electron BrowserWindow per SVG, which is too expensive to run
+ * from a preview that can fire on every format/template change — but a
+ * "valid SVG markup or not" check is just a regex over the bytes already in
+ * memory, so there's no reason not to run it here too.
+ */
+function checkSvgWellFormedness(
+  blocks: BlockNode[],
+  footnotes: IdmDocument["footnotes"],
+  warnings: WarningCollector,
+  sourcePath: string,
+): void {
+  for (const res of collectResources(blocks, footnotes)) {
+    if (res.kind !== "binary" || !res.data || res.mimeType !== "image/svg+xml") continue;
+    if (isWellFormedSvg(new TextDecoder().decode(res.data))) continue;
+    const name = res.originalPath.slice(res.originalPath.lastIndexOf("/") + 1);
+    warnings.add({
+      construct: "image",
+      message: `Couldn't process the SVG "${name}" — invalid or corrupt content; it will be shown as a placeholder.`,
+      sourcePath,
+    });
+  }
+}
+
+/**
+ * Pre-scan a note for warnings without rendering (drives the modal's row).
+ *
+ * Mermaid diagrams ARE actually rendered here, via the same resolveMermaid()
+ * path the real export uses (deps.mermaidToSvg) — a diagram's parse/render
+ * failure is only knowable by actually trying to render it, so there's no
+ * cheaper way to surface that warning before the user commits to exporting.
+ * This is real DOM work (see createMermaidRenderer in obsidian-adapter.ts)
+ * but not Electron-window-spinning work, and it's the only way to make this
+ * particular warning class visible pre-export at all.
+ *
+ * SVG rasterisation is deliberately NOT run here — see
+ * checkSvgWellFormedness's doc comment above for why a lighter check stands
+ * in for it in this preview path.
+ */
 export async function scanNote(
   adapter: VaultAdapter,
   settings: TrueExportSettings,
   sourcePath: string,
   format: ExportFormat = settings.defaultFormat,
   template: TemplateId = settings.defaultTemplate,
+  deps?: ExportDeps,
 ): Promise<ExportWarning[]> {
   const options = settingsToExportOptions(settings, format, template);
   const warnings = new WarningCollector();
-  await buildDocument(adapter, sourcePath, options, warnings);
+  // buildDocument() must never fetch remote images from a pre-scan (§7.6) —
+  // strip fetchRemoteImage specifically rather than dropping deps entirely,
+  // so mermaidToSvg (passed to resolveMermaid below) is still available.
+  const doc = await buildDocument(adapter, sourcePath, options, warnings, { ...deps, fetchRemoteImage: undefined });
+  const blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
+  checkSvgWellFormedness(blocks, doc.footnotes, warnings, sourcePath);
   return warnings.list();
 }
 
