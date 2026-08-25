@@ -365,6 +365,21 @@ function renderThematicBreak(ctx: RenderContext): Rendered[] {
  * spacing-after property" gap: rendered flush against whatever follows,
  * with no equivalent of the visible gap Obsidian's own editor shows between
  * adjacent callouts. Both get the same tableSpacer() fix.
+ *
+ * Known, accepted limitation: a markdown table nested inside a callout
+ * (node.children containing a "table" block) becomes a genuine OOXML table
+ * nested inside this callout's own single-cell table. Apple Pages does not
+ * support nested tables — its DOCX importer flattens the inner table to
+ * plain text, with a native Pages warning dialog ("Tables inside other
+ * tables were imported as text"). Confirmed after the columnWidths fix
+ * (§9.3): the degradation is now graceful — readable flattened text in a
+ * correctly-sized cell — rather than the garbled single-character-per-line
+ * rendering seen before that fix. This is an inherent Pages limitation, not
+ * a TrueExport defect, and isn't something to chase further without
+ * redesigning callout-with-table content to avoid true OOXML table nesting
+ * entirely (e.g. rendering an inner table as something other than a real
+ * `w:tbl` when it's inside a callout) — out of scope unless revisited
+ * deliberately.
  */
 function renderCallout(node: CalloutNode, ctx: RenderContext): Rendered[] {
   const color = calloutColor(node.calloutType);
