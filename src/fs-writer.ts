@@ -95,9 +95,14 @@ export function createFsWriter(rootDir: string, runtime: FsRuntime = defaultFsRu
   return {
     exists: (path) => runtime.exists(runtime.join(rootDir, path)),
     writeText: async (path, data) => {
+      // The root itself may have been deleted/moved/unmounted since it was
+      // picked (§D20) — recreate it (and any parent segments) before writing
+      // rather than silently falling back elsewhere or failing outright.
+      await runtime.mkdir(rootDir);
       await runtime.writeFile(runtime.join(rootDir, path), data);
     },
     writeBinary: async (path, data) => {
+      await runtime.mkdir(rootDir);
       await runtime.writeFile(runtime.join(rootDir, path), data);
     },
     createFolder: async (path) => {

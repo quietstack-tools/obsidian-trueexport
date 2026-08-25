@@ -90,6 +90,62 @@ describe("createFsWriter", () => {
   });
 });
 
+describe("createFsWriter — missing root directory (§D20)", () => {
+  it("recreates the root directory and writes the file when it was deleted/unmounted since being picked", async () => {
+    const root = "/Users/kesavan/Downloads/trueexport-testing";
+    // seedDirectory=false: simulates the picked folder no longer existing.
+    const { runtime, files, dirs } = fakeRuntime(root, /* seedDirectory */ false);
+    const writer: VaultWriter = createFsWriter(root, runtime);
+    const adapter = new MemoryVaultAdapter({ notes: { "folder/Note.md": "# Hi\n\nBody" } });
+    const settings: TrueExportSettings = {
+      ...DEFAULT_SETTINGS,
+      outputLocation: "custom",
+      customOutputFolder: root,
+    };
+
+    const result = await exportNote({
+      adapter,
+      writer,
+      settings,
+      sourcePath: "folder/Note.md",
+      format: "html",
+      template: "default",
+    });
+
+    expect(runtime.mkdir).toHaveBeenCalledWith(root);
+    expect(dirs.has(root)).toBe(true);
+    expect(files.has(`${root}/Note.html`)).toBe(true);
+    expect(result.outputPath).toBe("Note.html");
+  });
+
+  it("surfaces an honest error, not a false success, when the root can't be recreated", async () => {
+    const root = "/Users/kesavan/Downloads/trueexport-testing";
+    const { runtime } = fakeRuntime(root, /* seedDirectory */ false);
+    // The parent is read-only: mkdir genuinely fails.
+    runtime.mkdir = vi.fn(async () => {
+      throw Object.assign(new Error("EACCES: permission denied, mkdir"), { code: "EACCES" });
+    });
+    const writer: VaultWriter = createFsWriter(root, runtime);
+    const adapter = new MemoryVaultAdapter({ notes: { "folder/Note.md": "# Hi\n\nBody" } });
+    const settings: TrueExportSettings = {
+      ...DEFAULT_SETTINGS,
+      outputLocation: "custom",
+      customOutputFolder: root,
+    };
+
+    await expect(
+      exportNote({
+        adapter,
+        writer,
+        settings,
+        sourcePath: "folder/Note.md",
+        format: "html",
+        template: "default",
+      }),
+    ).rejects.toThrow(/EACCES/);
+  });
+});
+
 describe("pickExportFolder", () => {
   it("delegates to the runtime's native dialog and returns the chosen path", async () => {
     const { runtime } = fakeRuntime("/Users/kesavan/Downloads/exports");

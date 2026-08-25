@@ -14,7 +14,7 @@ import {
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import { createElectronSvgRasterizer } from "./src/svg-rasterizer-electron";
-import { createFsWriter, isValidExportRoot } from "./src/fs-writer";
+import { createFsWriter } from "./src/fs-writer";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
 import type { ExportWarning } from "./src/core/warnings";
@@ -283,19 +283,17 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
    * The one documented exception to "never write outside the vault"
    * (CLAUDE.md): a custom export destination the user picked via the native
    * OS folder dialog (desktop only — settings-tab.ts never lets mobile store
-   * an absolute path). Falls back to the vault-backed writer — which then
-   * confines "Custom folder" output to the vault root — if the stored path
-   * isn't a real, absolute, existing directory (e.g. it was moved or deleted
-   * since it was picked).
+   * an absolute path). Falls back to the vault-backed writer only when the
+   * stored value isn't even a real absolute path (e.g. mobile, or an empty
+   * setting). If the folder itself no longer exists — moved, deleted, an
+   * unmounted external drive — we do NOT silently reroute the export into
+   * the vault (§D20): createFsWriter recreates the missing directory at
+   * write time, and a genuine failure to do so surfaces as an honest error
+   * instead of a false "exported" success somewhere the user isn't looking.
    */
   private writer(): VaultWriter {
     const { outputLocation, customOutputFolder } = this.settings;
-    if (
-      Platform.isDesktop &&
-      outputLocation === "custom" &&
-      isAbsoluteOutputPath(customOutputFolder) &&
-      isValidExportRoot(customOutputFolder)
-    ) {
+    if (Platform.isDesktop && outputLocation === "custom" && isAbsoluteOutputPath(customOutputFolder)) {
       return createFsWriter(customOutputFolder);
     }
     return this.vaultWriter();
