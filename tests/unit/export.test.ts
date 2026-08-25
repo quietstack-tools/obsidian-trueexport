@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import * as JSZip from "jszip";
-import { exportNote, exportFolder, scanNote, clearReferenceStyleCache, type VaultWriter } from "../../src/export";
+import {
+  exportNote,
+  exportFolder,
+  scanNote,
+  clearReferenceStyleCache,
+  friendlyErrorMessage,
+  type VaultWriter,
+} from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
 import { MemoryVaultAdapter } from "../helpers/memory-adapter";
 
@@ -457,5 +464,30 @@ describe("reference DOCX (Pro; §5.1)", () => {
     // The reference file is read once across two exports; the second is a cache hit.
     const refReads = readSpy.mock.calls.filter((c) => c[0] === "templates/house.docx").length;
     expect(refReads).toBe(1);
+  });
+});
+
+describe("friendlyErrorMessage", () => {
+  it("turns an EACCES write failure into a plain-language permission message", () => {
+    const error = Object.assign(new Error("EACCES: permission denied, open '/foo/bar.docx'"), {
+      code: "EACCES",
+    });
+    expect(friendlyErrorMessage(error)).toBe(
+      "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.",
+    );
+  });
+
+  it("turns an EPERM write failure into the same plain-language permission message", () => {
+    const error = Object.assign(new Error("EPERM: operation not permitted, open '/foo/bar.docx'"), {
+      code: "EPERM",
+    });
+    expect(friendlyErrorMessage(error)).toBe(
+      "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.",
+    );
+  });
+
+  it("leaves other errors untouched", () => {
+    const error = new Error("Could not read note \"foo.md\". Make sure it still exists.");
+    expect(friendlyErrorMessage(error)).toBe('Could not read note "foo.md". Make sure it still exists.');
   });
 });

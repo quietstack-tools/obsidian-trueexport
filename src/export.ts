@@ -475,6 +475,23 @@ export function isAbsoluteOutputPath(path: string): boolean {
   return ABSOLUTE_OS_PATH.test(path);
 }
 
+/** Node error codes for a write blocked by filesystem permissions. */
+const PERMISSION_DENIED_CODES = new Set(["EACCES", "EPERM"]);
+
+/**
+ * Turn a raw write failure into an actionable message for the Notice shown on
+ * export failure. Permission-denied errors (e.g. a read-only custom output
+ * folder) get a plain-language explanation instead of a Node error code;
+ * every other error is passed through unchanged.
+ */
+export function friendlyErrorMessage(error: unknown): string {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  if (typeof code === "string" && PERMISSION_DENIED_CODES.has(code)) {
+    return "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function outputFolder(settings: TrueExportSettings, sourcePath: string): string {
   switch (settings.outputLocation) {
     case "vault-root":

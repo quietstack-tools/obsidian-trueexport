@@ -24,6 +24,7 @@ import {
   scanNote,
   basename,
   isAbsoluteOutputPath,
+  friendlyErrorMessage,
   type BatchResult,
   type ExportDeps,
   type VaultWriter,
@@ -170,7 +171,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       }
     } catch (error) {
       console.error("[TrueExport]", error);
-      new Notice(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+      new Notice(`Export failed: ${friendlyErrorMessage(error)}`);
     }
   }
 
