@@ -111,6 +111,7 @@ if (drift) {
 const OK_URLS = [
   "https://quietstack.tools/",
   "https://quietstack.tools/trueexport",
+  "https://quietstack.tools/trueexport/thank-you",
   "https://quietstack.tools/trueexport/commitments",
   "https://quietstack.tools/trueexport/terms",
   "https://quietstack.tools/privacy",

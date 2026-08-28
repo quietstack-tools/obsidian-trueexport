@@ -95,3 +95,24 @@ footer p { margin: 0.3rem 0; }
 .home-lede { font-size: 1.1rem; color: var(--muted); }
 .home-links { margin-top: 1.5rem; }
 .home-links p { margin: 0.5rem 0; }
+
+/* The "Get TrueExport Pro" purchase button on the /trueexport landing page. */
+.btn-buy {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 1.05rem;
+  padding: 0.75rem 1.6rem;
+  border-radius: 8px;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(8, 109, 221, 0.35);
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.btn-buy:hover {
+  background: #0759b8;
+  box-shadow: 0 4px 10px rgba(8, 109, 221, 0.45);
+  text-decoration: none;
+}
+.btn-buy:active { transform: translateY(1px); }
+.btn-buy-row { margin: 1.25rem 0; }

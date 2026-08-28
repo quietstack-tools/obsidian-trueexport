@@ -256,6 +256,7 @@ function homePage() {
       and footnotes intact.
     </p>
     <div class="home-links">
+      <p><a href="/trueexport">TrueExport</a> — the plugin itself, Free tier and Pro.</p>
       <p><a href="/trueexport/commitments">TrueExport Free Feature Commitment</a> — what stays free, permanently.</p>
       <p><a href="/trueexport/terms">TrueExport Pro — Terms of Purchase and Use</a></p>
       <p><a href="/privacy">Privacy Policy</a></p>
@@ -317,7 +318,7 @@ ${proList}
       Buying Pro is never necessary to get correct output. The full terms are in
       the <a href="/trueexport/terms">Pro Terms of Purchase</a>.
     </p>
-    <p><a href="https://polar.sh/quietstack">Get TrueExport Pro on Polar</a></p>
+    <p class="btn-buy-row"><a class="btn-buy" href="https://buy.polar.sh/polar_cl_aKz62tsFd1zRn3nxfBb0n9QZ55OTs12IhiaZu3Q6EKh">Get TrueExport Pro</a></p>
 
     <h2>More</h2>
     <ul>
@@ -328,6 +329,50 @@ ${proList}
       <li><a href="https://github.com/quietstack-tools/obsidian-trueexport">Source on GitHub</a></li>
     </ul>`;
   return shell("TrueExport — Obsidian export to Word, PDF and HTML", body);
+}
+
+// The purchase-confirmation page at /trueexport/thank-you — the Polar
+// checkout's Success URL for TrueExport Pro. Licence-key delivery is
+// entirely Polar's own "License Keys" benefit (confirmed against Polar's
+// docs, not assumed): Polar automatically issues the key on purchase and it
+// is always viewable/copyable from the customer's Polar purchases page;
+// a paid checkout also triggers Polar's own order-confirmation email. This
+// page describes that, rather than claiming a delivery mechanism this
+// project doesn't implement or control — there is no webhook/backend in
+// this repo, only the client-side licence *validation* call in
+// src/licence/polar.ts.
+function thankYouPage() {
+  const body = `<h1>Thank you for purchasing TrueExport Pro</h1>
+    <p class="home-lede">Your purchase is complete — here's what happens next.</p>
+
+    <h2>Your licence key</h2>
+    <p>
+      Polar (who handles TrueExport's payments) emails you an order
+      confirmation with your licence key shortly after purchase — check your
+      inbox, and your spam/promotions folder if it doesn't arrive within a few
+      minutes. Your key is also always available afterwards from your
+      <a href="https://polar.sh/quietstack/portal">Polar customer portal</a>,
+      if you ever need to look it up again.
+    </p>
+
+    <h2>Activating Pro in Obsidian</h2>
+    <ol>
+      <li>Open Obsidian's <strong>Settings</strong></li>
+      <li>Go to <strong>Community plugins</strong> and open <strong>TrueExport</strong>'s settings</li>
+      <li>Paste your licence key into the <strong>Licence key</strong> field</li>
+      <li>Click <strong>Activate</strong></li>
+    </ol>
+    <p>
+      That's it — custom export templates, reference-DOCX house-style
+      mapping, batch folder export, and attribution removal unlock
+      immediately.
+    </p>
+
+    <div class="home-links">
+      <p><a href="/trueexport">Back to TrueExport</a></p>
+      <p><a href="/">quietstack.tools home</a></p>
+    </div>`;
+  return shell("Thank you — TrueExport Pro", body);
 }
 
 // The 404 page. Cloudflare Pages serves /404.html with a real 404 status for
@@ -373,3 +418,11 @@ console.log(`Generated ${landingFile} (product landing page).`);
 const notFoundFile = join(publicDir, "404.html");
 writeFileSync(notFoundFile, notFoundPage(), "utf-8");
 console.log(`Generated ${notFoundFile} (404 page).`);
+
+// The purchase-confirmation page at /trueexport/thank-you (Polar checkout's
+// Success URL). Flat file under trueexport/ → served at the clean, no-slash
+// URL, same convention as the commitments/terms pages.
+const thankYouFile = join(publicDir, "trueexport", "thank-you.html");
+mkdirSync(dirname(thankYouFile), { recursive: true });
+writeFileSync(thankYouFile, thankYouPage(), "utf-8");
+console.log(`Generated ${thankYouFile} (purchase-confirmation page).`);
