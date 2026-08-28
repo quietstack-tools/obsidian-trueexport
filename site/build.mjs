@@ -257,6 +257,7 @@ function homePage() {
     </p>
     <div class="home-links">
       <p><a href="/trueexport/commitments">TrueExport Free Feature Commitment</a> — what stays free, permanently.</p>
+      <p><a href="/trueexport">TrueExport</a> — the plugin itself, Free tier and Pro.</p>
       <p><a href="/trueexport/terms">TrueExport Pro — Terms of Purchase and Use</a></p>
       <p><a href="/privacy">Privacy Policy</a></p>
     </div>`;
