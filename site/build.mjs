@@ -317,7 +317,7 @@ ${proList}
       Buying Pro is never necessary to get correct output. The full terms are in
       the <a href="/trueexport/terms">Pro Terms of Purchase</a>.
     </p>
-    <p><a href="https://polar.sh/checkout/polar_c_SeZNXeJWMKKXotzOJyKGsUTjmt0BoYZJasoHs3Z1wof">Get TrueExport Pro on Polar</a></p>
+    <p><a href="https://buy.polar.sh/polar_cl_aKz62tsFd1zRn3nxfBb0n9QZ55OTs12IhiaZu3Q6EKh">Get TrueExport Pro on Polar</a></p>
 
     <h2>More</h2>
     <ul>
