@@ -6,6 +6,7 @@
 
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import type { BatchResult } from "../export";
+import { BatchWarningsModal } from "./warnings-view";
 
 export interface BatchModalHost {
   runFolderExport(
@@ -121,10 +122,24 @@ export class BatchModal extends Modal {
     if (this.dismissed) {
       // The modal was already dismissed (e.g. the user navigated away) before
       // the export finished running in the background — surface the result
-      // via a Notice instead of silently finishing with nothing shown.
+      // via a Notice instead of silently finishing with nothing shown. A
+      // Notice can't carry a button, so the per-file warning breakdown below
+      // isn't reachable in this path — the aggregate count is the best this
+      // can do once there's no modal left.
       new Notice(`Folder export: ${summary}`);
-    } else if (this.progressEl) {
-      this.progressEl.setText(summary);
+      return;
+    }
+    if (this.progressEl) this.progressEl.setText(summary);
+    if (result.warnings.length > 0) {
+      // A count alone doesn't say WHICH of the (possibly many) files had
+      // issues or what they were — the single-note export's warnings modal
+      // already solves this per-file; BatchWarningsModal is the same pattern
+      // grouped by source file, since a batch can span many of them.
+      new Setting(this.contentEl).addButton((b) =>
+        b.setButtonText("View details").onClick(() => {
+          new BatchWarningsModal(this.app, this.folderName, result.warnings).open();
+        }),
+      );
     }
   }
 }

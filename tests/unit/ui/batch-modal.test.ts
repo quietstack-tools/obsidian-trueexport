@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { App } from "obsidian";
+import { App, Modal } from "obsidian";
 import { noticeLog } from "../../mocks/obsidian";
 import { BatchModal, type BatchModalHost } from "../../../src/ui/batch-modal";
 import type { BatchResult } from "../../../src/export";
@@ -135,5 +135,57 @@ describe("BatchModal", () => {
     expect(cancel).toBeDefined();
     cancel.click();
     expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("offers a 'View details' button with a per-file warning breakdown when the batch has warnings", async () => {
+    const warnings: BatchResult["warnings"] = [
+      { construct: "math", message: "Equation couldn't be converted.", line: 14, sourcePath: "proj/One.md" },
+      { construct: "image", message: "Image not found: x.png.", line: 3, sourcePath: "proj/Two.md" },
+    ];
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result({ warnings })),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    // Not just an aggregate count — a real way to see which file had what.
+    expect(modal.contentEl.textContent).toContain("2 warning(s)");
+    const viewDetails = Array.from(modal.contentEl.querySelectorAll("button")).find(
+      (b) => b.textContent === "View details",
+    )!;
+    expect(viewDetails).toBeDefined();
+
+    const opened: InstanceType<typeof Modal>[] = [];
+    const originalOpen = Modal.prototype.open;
+    const openSpy = vi.spyOn(Modal.prototype, "open").mockImplementation(function (this: InstanceType<typeof Modal>) {
+      opened.push(this);
+      return originalOpen.call(this);
+    });
+    try {
+      viewDetails.click();
+    } finally {
+      openSpy.mockRestore();
+    }
+
+    // Opens the per-file breakdown modal — grouped headings, not a flat count.
+    const details = opened.find((m) => m.constructor.name === "BatchWarningsModal") as unknown as
+      | { contentEl: HTMLElement }
+      | undefined;
+    expect(details).toBeDefined();
+    const detailsHeadings = Array.from(details!.contentEl.querySelectorAll("h4")).map((h) => h.textContent);
+    expect(detailsHeadings).toEqual(["proj/One.md", "proj/Two.md"]);
+  });
+
+  it("does not offer 'View details' when there are no warnings", async () => {
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result()),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    const buttons = Array.from(modal.contentEl.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).not.toContain("View details");
   });
 });
