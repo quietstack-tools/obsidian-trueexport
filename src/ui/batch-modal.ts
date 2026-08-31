@@ -4,7 +4,7 @@
 // stays cancellable, and drives the obsidian-free exportFolder() via an
 // AbortController. Only opened for Pro users (the command gates first).
 
-import { App, Modal, Setting } from "obsidian";
+import { App, ButtonComponent, Modal, Setting } from "obsidian";
 import type { BatchResult } from "../export";
 
 export interface BatchModalHost {
@@ -18,6 +18,7 @@ export interface BatchModalHost {
 export class BatchModal extends Modal {
   private readonly controller = new AbortController();
   private progressEl: HTMLElement | null = null;
+  private cancelButton: ButtonComponent | null = null;
   private done = false;
 
   constructor(
@@ -36,7 +37,8 @@ export class BatchModal extends Modal {
     contentEl.createEl("h3", { text: `Export folder "${this.folderName}"` });
     this.progressEl = contentEl.createEl("p", { text: "Preparing…" });
 
-    new Setting(contentEl).addButton((b) =>
+    new Setting(contentEl).addButton((b) => {
+      this.cancelButton = b;
       b.setButtonText("Cancel").onClick(() => {
         if (this.done) {
           this.close();
@@ -44,8 +46,8 @@ export class BatchModal extends Modal {
           this.controller.abort();
           if (this.progressEl) this.progressEl.setText("Cancelling…");
         }
-      }),
-    );
+      });
+    });
 
     void this.run();
   }
@@ -67,15 +69,27 @@ export class BatchModal extends Modal {
       this.showSummary(result);
     } catch (error) {
       console.error("[TrueExport]", error);
-      this.done = true;
+      this.markDone();
       if (this.progressEl) {
         this.progressEl.setText(`Folder export failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
 
-  private showSummary(result: BatchResult): void {
+  /**
+   * Once the batch has finished (success, failure, or cancelled) there is
+   * nothing left to cancel — relabel the button so it reads as a plain
+   * dismissal ("Close") rather than implying an in-progress action can still
+   * be stopped ("Cancel"). The click handler already special-cases `done` to
+   * just close the modal; this only fixes the label to match.
+   */
+  private markDone(): void {
     this.done = true;
+    this.cancelButton?.setButtonText("Close");
+  }
+
+  private showSummary(result: BatchResult): void {
+    this.markDone();
     if (!this.progressEl) return;
     const parts = [`${result.outputs.length} of ${result.total} exported`];
     if (result.failures.length > 0) parts.push(`${result.failures.length} failed`);

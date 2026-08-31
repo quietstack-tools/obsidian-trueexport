@@ -26,6 +26,45 @@ describe("BatchModal", () => {
     expect(modal.contentEl.textContent).toContain("2 of 2 exported");
   });
 
+  it("relabels the button from Cancel to Close once the export has finished, and closes on click with no side effects", async () => {
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result()),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    // No stray "Cancel" button left over once the batch is done.
+    const buttons = Array.from(modal.contentEl.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["Close"]);
+
+    const close = modal.contentEl.querySelector("button")!;
+    close.click();
+    expect((modal as unknown as { isOpen: boolean }).isOpen).toBe(false);
+  });
+
+  it("still reads Cancel while the export is in progress", async () => {
+    let resolveRun: (() => void) | undefined;
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(
+        () =>
+          new Promise<BatchResult>((resolve) => {
+            resolveRun = () => resolve(result());
+          }),
+      ),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    const button = modal.contentEl.querySelector("button")!;
+    expect(button.textContent).toBe("Cancel");
+
+    resolveRun?.();
+    await flush();
+    expect(button.textContent).toBe("Close");
+  });
+
   it("offers a Cancel button that aborts the run", async () => {
     let capturedSignal: AbortSignal | undefined;
     const host: BatchModalHost = {
