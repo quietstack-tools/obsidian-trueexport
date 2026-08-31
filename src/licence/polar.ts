@@ -15,8 +15,11 @@ const TIMEOUT_MS = 10_000;
 export interface LicenceResult {
   /**
    * "valid"   — server reached, key accepted → activate.
-   * "invalid" — server reached, key genuinely rejected → do not activate.
-   * "error"   — network error / timeout / non-200 → fail open (§7.2 rule 3).
+   * "invalid" — server reached, key genuinely rejected (a 200 response that
+   *             isn't granted, or a 404 — Polar's documented "key not found"
+   *             response) → do not activate.
+   * "error"   — network error / timeout / any other unexpected non-200 →
+   *             fail open (§7.2 rule 3).
    */
   status: "valid" | "invalid" | "error";
   message: string;
@@ -42,7 +45,23 @@ export async function validateLicence(key: string): Promise<LicenceResult> {
       signal: controller.signal,
     });
 
-    // Any non-200 is treated as "couldn't validate" → fail open (§7.2).
+    // Polar's own API spec documents 404 on this endpoint as "License key not
+    // found" — a genuine response, not a connectivity problem, so it must NOT
+    // be lumped in with the generic fail-open "couldn't reach server" case
+    // below (confirmed via a live request with a real, valid key: 200, no
+    // redirect, correct URL — the endpoint itself is fine; only an actual
+    // nonexistent/mistyped key produces this 404).
+    if (res.status === 404) {
+      return {
+        status: "invalid",
+        message:
+          "That licence key wasn't recognised. Check that you copied it correctly, or contact support if you believe this is an error.",
+      };
+    }
+
+    // Any other non-200 (e.g. a transient 5xx, or a 422 the client-side
+    // request shape should never actually trigger) is a genuine "couldn't
+    // validate" case → fail open (§7.2).
     if (!res.ok) {
       return {
         status: "error",

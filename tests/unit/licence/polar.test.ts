@@ -40,7 +40,19 @@ describe("validateLicence", () => {
     expect(result.status).toBe("invalid");
   });
 
-  it("returns 'error' (fail-open) on a non-200 response", async () => {
+  it("returns 'invalid' with a clear, actionable message on a 404 (Polar's documented 'key not found' response)", async () => {
+    // Confirmed against Polar's own API spec and a live request: 404 here
+    // means the key genuinely doesn't exist, NOT a broken endpoint or a
+    // connectivity problem — it must not show the generic "could not reach
+    // the server" message, which is misleading for this specific case.
+    mockFetch(async () => ({ ok: false, status: 404, json: async () => ({ error: "ResourceNotFound" }) }));
+    const result = await validateLicence("BOGUS-KEY");
+    expect(result.status).toBe("invalid");
+    expect(result.message).toMatch(/wasn't recognised/);
+    expect(result.message).not.toMatch(/Could not reach the licence server/);
+  });
+
+  it("returns 'error' (fail-open) on an unexpected non-200 response other than 404", async () => {
     mockFetch(async () => ({ ok: false, status: 503, json: async () => ({}) }));
     const result = await validateLicence("KEY");
     expect(result.status).toBe("error");
