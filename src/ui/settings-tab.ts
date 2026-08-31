@@ -9,6 +9,7 @@ import type { TrueExportSettings } from "./settings";
 import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
 import { isValidExportRoot, pickExportFolder } from "../fs-writer";
+import { ReferenceDocxModal } from "./reference-docx-modal";
 
 // Polar's documented static customer-portal URL (customer authenticates by
 // email on the page — no pre-session needed).
@@ -153,11 +154,17 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
-    // Reference DOCX is Pro-gated: enabled only when activated (§8).
+    // Reference DOCX is Pro-gated: enabled only when activated (§8). A
+    // vault-scoped fuzzy picker, not a typed path or an OS file dialog — the
+    // stored value must stay vault-relative (read via
+    // adapter.readBinary() → app.vault.getAbstractFileByPath()), which an
+    // OS-wide picker could never guarantee (see reference-docx-modal.ts).
     const referenceDocxSetting = new Setting(containerEl).setName("Reference DOCX (house style)");
     if (this.host.licence.isActivated) {
       referenceDocxSetting.setDesc(
-        "Vault path to a .docx whose Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) are applied to Word exports. Leave blank to use built-in styles.",
+        s.referenceDocxPath
+          ? `Applies Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) from this file to Word exports. Currently: ${s.referenceDocxPath}`
+          : "Applies Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) from a chosen .docx to Word exports. Not set — built-in styles are used.",
       );
     } else {
       // Same clickable "Learn more" pattern as the export modal's template
@@ -172,14 +179,28 @@ export class TrueExportSettingTab extends PluginSettingTab {
       frag.appendChild(link);
       referenceDocxSetting.setDesc(frag);
     }
-    referenceDocxSetting.addText((t) =>
-      t
-        .setPlaceholder("templates/house-style.docx")
-        .setValue(s.referenceDocxPath)
+    if (s.referenceDocxPath) {
+      referenceDocxSetting.addButton((b) =>
+        b
+          .setButtonText("Clear")
+          .setDisabled(!this.host.licence.isActivated)
+          .onClick(async () => {
+            s.referenceDocxPath = "";
+            await this.host.saveSettings();
+            this.display();
+          }),
+      );
+    }
+    referenceDocxSetting.addButton((b) =>
+      b
+        .setButtonText("Choose file…")
         .setDisabled(!this.host.licence.isActivated)
-        .onChange((v) => {
-          s.referenceDocxPath = v;
-          save();
+        .onClick(() => {
+          new ReferenceDocxModal(this.app, (file) => {
+            s.referenceDocxPath = file.path;
+            void this.host.saveSettings();
+            this.display();
+          }).open();
         }),
     );
 

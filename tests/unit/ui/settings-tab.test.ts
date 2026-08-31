@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { App } from "obsidian";
+import { App, Modal } from "obsidian";
 import { TrueExportSettingTab, type SettingsHost } from "../../../src/ui/settings-tab";
 import { DEFAULT_SETTINGS } from "../../../src/ui/settings";
 
@@ -23,8 +23,9 @@ function makeTab(activated = false) {
     licence: typeof licence;
   };
   // The mock PluginSettingTab constructor accepts any plugin-like object.
-  const tab = new TrueExportSettingTab(new App(), host as never);
-  return { tab, host, licence };
+  const app = new App();
+  const tab = new TrueExportSettingTab(app, host as never);
+  return { tab, host, licence, app };
 }
 
 function findSetting(tab: TrueExportSettingTab, name: string): Element {
@@ -116,13 +117,15 @@ describe("TrueExportSettingTab", () => {
 });
 
 describe("TrueExportSettingTab — licence + Pro gating", () => {
-  it("shows Activate and disables the reference-DOCX field when not activated", () => {
+  it("shows Activate and disables the reference-DOCX picker button when not activated", () => {
     const { tab } = makeTab(false);
     tab.display();
     const buttons = Array.from(tab.containerEl.querySelectorAll("button")).map((b) => b.textContent);
     expect(buttons).toContain("Activate");
-    const refInput = findSetting(tab, "Reference DOCX (house style)").querySelector("input") as HTMLInputElement;
-    expect(refInput.disabled).toBe(true);
+    const chooseFile = Array.from(findSetting(tab, "Reference DOCX (house style)").querySelectorAll("button")).find(
+      (b) => b.textContent === "Choose file…",
+    ) as HTMLButtonElement;
+    expect(chooseFile.disabled).toBe(true);
   });
 
   it("shows a real, clickable 'Learn more' link (not just text) on the reference-DOCX upsell when not activated", () => {
@@ -136,14 +139,80 @@ describe("TrueExportSettingTab — licence + Pro gating", () => {
     expect(link!.textContent).toBe("Learn more");
   });
 
-  it("shows Deactivate, device limit, and enables reference-DOCX when activated", () => {
+  it("shows Deactivate, device limit, and enables the reference-DOCX picker button when activated", () => {
     const { tab } = makeTab(true);
     tab.display();
     const buttons = Array.from(tab.containerEl.querySelectorAll("button")).map((b) => b.textContent);
     expect(buttons).toContain("Deactivate");
     expect(findSetting(tab, "Licence key").textContent).toContain("up to 2 device(s)");
-    const refInput = findSetting(tab, "Reference DOCX (house style)").querySelector("input") as HTMLInputElement;
-    expect(refInput.disabled).toBe(false);
+    const chooseFile = Array.from(findSetting(tab, "Reference DOCX (house style)").querySelectorAll("button")).find(
+      (b) => b.textContent === "Choose file…",
+    ) as HTMLButtonElement;
+    expect(chooseFile.disabled).toBe(false);
+  });
+
+  it("opens a vault-scoped file picker listing only .docx files, not an OS-wide dialog", () => {
+    const { tab, host, app } = makeTab(true);
+    (app.vault as unknown as { notes: Map<string, string> }).notes.set("Note.md", "# Hi");
+    (app.vault as unknown as { binaries: Map<string, ArrayBuffer> }).binaries.set(
+      "templates/house.docx",
+      new ArrayBuffer(0),
+    );
+    (app.vault as unknown as { binaries: Map<string, ArrayBuffer> }).binaries.set("images/logo.png", new ArrayBuffer(0));
+    tab.display();
+
+    const opened: InstanceType<typeof Modal>[] = [];
+    const originalOpen = Modal.prototype.open;
+    const openSpy = vi.spyOn(Modal.prototype, "open").mockImplementation(function (this: InstanceType<typeof Modal>) {
+      opened.push(this);
+      return originalOpen.call(this);
+    });
+    try {
+      const chooseFile = Array.from(
+        findSetting(tab, "Reference DOCX (house style)").querySelectorAll("button"),
+      ).find((b) => b.textContent === "Choose file…")!;
+      chooseFile.click();
+    } finally {
+      openSpy.mockRestore();
+    }
+
+    const picker = opened.find((m) => m.constructor.name === "ReferenceDocxModal") as unknown as
+      | { getItems(): { path: string }[] }
+      | undefined;
+    expect(picker).toBeDefined();
+    // Only the vault's .docx file is offered — the note and the image aren't.
+    expect(picker!.getItems().map((f) => f.path)).toEqual(["templates/house.docx"]);
+
+    // Choosing an item stores its vault-relative path and re-renders.
+    (picker as unknown as { onChooseItem(file: { path: string }, evt: unknown): void }).onChooseItem(
+      { path: "templates/house.docx" },
+      {},
+    );
+    expect(host.settings.referenceDocxPath).toBe("templates/house.docx");
+    expect(host.saveSettings).toHaveBeenCalled();
+  });
+
+  it("shows the current reference-DOCX path as read-only text, and a Clear button, once one is set", () => {
+    const { tab, host } = makeTab(true);
+    host.settings.referenceDocxPath = "templates/house.docx";
+    tab.display();
+
+    const setting = findSetting(tab, "Reference DOCX (house style)");
+    expect(setting.querySelector(".setting-item-description")!.textContent).toContain("templates/house.docx");
+    // Read-only: no free-text input to type a path into.
+    expect(setting.querySelector("input")).toBeNull();
+
+    const clear = Array.from(setting.querySelectorAll("button")).find((b) => b.textContent === "Clear")!;
+    expect(clear).toBeDefined();
+    clear.click();
+    expect(host.settings.referenceDocxPath).toBe("");
+  });
+
+  it("does not show a Clear button when no reference DOCX is set", () => {
+    const { tab } = makeTab(true);
+    tab.display();
+    const setting = findSetting(tab, "Reference DOCX (house style)");
+    expect(Array.from(setting.querySelectorAll("button")).some((b) => b.textContent === "Clear")).toBe(false);
   });
 
   it("calls licence.activate when Activate is clicked", () => {

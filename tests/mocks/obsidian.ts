@@ -134,6 +134,10 @@ export class Vault {
   getMarkdownFiles(): TFile[] {
     return [...this.notes.keys()].filter((p) => p.endsWith(".md")).map((p) => this.fileFor(p));
   }
+  /** All files in the vault — notes and binaries alike (mirrors the real Vault.getFiles()). */
+  getFiles(): TFile[] {
+    return [...this.notes.keys(), ...this.binaries.keys()].map((p) => this.fileFor(p));
+  }
 }
 
 export class MetadataCache {
@@ -295,6 +299,30 @@ export class Modal {
     return this;
   }
   titleText = "";
+}
+
+// ---- Suggest modals (fuzzy file pickers etc.) ----
+// Minimal: tests drive these directly (getItems()/onChooseItem(...)), not via
+// simulated keystrokes/fuzzy-matching, matching how other modals in this test
+// suite are exercised (constructed, methods called directly).
+
+export class SuggestModal<T> extends Modal {
+  inputEl: HTMLInputElement = document.createElement("input");
+  emptyStateText = "";
+  limit = 100;
+  setPlaceholder(p: string) {
+    this.inputEl.placeholder = p;
+    return this;
+  }
+  setInstructions(_instructions: unknown[]) {
+    return this;
+  }
+}
+
+export abstract class FuzzySuggestModal<T> extends SuggestModal<T> {
+  abstract getItems(): T[];
+  abstract getItemText(item: T): string;
+  abstract onChooseItem(item: T, evt: MouseEvent | KeyboardEvent): void;
 }
 
 // ---- Settings tab + components ----
