@@ -154,23 +154,34 @@ export class TrueExportSettingTab extends PluginSettingTab {
       }),
     );
     // Reference DOCX is Pro-gated: enabled only when activated (§8).
-    new Setting(containerEl)
-      .setName("Reference DOCX (house style)")
-      .setDesc(
-        this.host.licence.isActivated
-          ? "Vault path to a .docx whose Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) are applied to Word exports. Leave blank to use built-in styles."
-          : "Requires TrueExport Pro.",
-      )
-      .addText((t) =>
-        t
-          .setPlaceholder("templates/house-style.docx")
-          .setValue(s.referenceDocxPath)
-          .setDisabled(!this.host.licence.isActivated)
-          .onChange((v) => {
-            s.referenceDocxPath = v;
-            save();
-          }),
+    const referenceDocxSetting = new Setting(containerEl).setName("Reference DOCX (house style)");
+    if (this.host.licence.isActivated) {
+      referenceDocxSetting.setDesc(
+        "Vault path to a .docx whose Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) are applied to Word exports. Leave blank to use built-in styles.",
       );
+    } else {
+      // Same clickable "Learn more" pattern as the export modal's template
+      // upsell (src/ui/export-modal.ts) and the folder-export Pro-gating
+      // modal (src/ui/pro-required-modal.ts) — a real <a>, not plain text
+      // mentioning a URL.
+      const frag = document.createDocumentFragment();
+      frag.appendChild(document.createTextNode("Requires TrueExport Pro. "));
+      const link = document.createElement("a");
+      link.href = PRO_URL;
+      link.textContent = "Learn more";
+      frag.appendChild(link);
+      referenceDocxSetting.setDesc(frag);
+    }
+    referenceDocxSetting.addText((t) =>
+      t
+        .setPlaceholder("templates/house-style.docx")
+        .setValue(s.referenceDocxPath)
+        .setDisabled(!this.host.licence.isActivated)
+        .onChange((v) => {
+          s.referenceDocxPath = v;
+          save();
+        }),
+    );
 
     // PDF
     new Setting(containerEl).setName("PDF").setHeading();

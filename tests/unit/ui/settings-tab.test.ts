@@ -125,6 +125,17 @@ describe("TrueExportSettingTab — licence + Pro gating", () => {
     expect(refInput.disabled).toBe(true);
   });
 
+  it("shows a real, clickable 'Learn more' link (not just text) on the reference-DOCX upsell when not activated", () => {
+    const { tab } = makeTab(false);
+    tab.display();
+    const desc = findSetting(tab, "Reference DOCX (house style)").querySelector(".setting-item-description")!;
+    expect(desc.textContent).toContain("Requires TrueExport Pro.");
+    const link = desc.querySelector("a");
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute("href")).toBe("https://quietstack.tools/trueexport");
+    expect(link!.textContent).toBe("Learn more");
+  });
+
   it("shows Deactivate, device limit, and enables reference-DOCX when activated", () => {
     const { tab } = makeTab(true);
     tab.display();
