@@ -20,7 +20,13 @@ export class ReferenceDocxModal extends FuzzySuggestModal<TFile> {
     private readonly onChoose: (file: TFile) => void,
   ) {
     super(app);
-    this.setPlaceholder("Choose a reference .docx…");
+    // Explicit about the scope up front — this searches .docx files already
+    // IN the vault, not the whole filesystem, so a user looking for a file
+    // they haven't moved into the vault yet isn't left wondering why it's
+    // not showing up.
+    this.setPlaceholder("Search .docx files in your vault…");
+    this.emptyStateText =
+      "No .docx files found in your vault. Add a reference document to your vault first, then choose it here.";
   }
 
   getItems(): TFile[] {

@@ -164,7 +164,7 @@ export class TrueExportSettingTab extends PluginSettingTab {
       referenceDocxSetting.setDesc(
         s.referenceDocxPath
           ? `Applies Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) from this file to Word exports. Currently: ${s.referenceDocxPath}`
-          : "Applies Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) from a chosen .docx to Word exports. Not set — built-in styles are used.",
+          : "Select a .docx file already in your vault to use as a style reference for Word exports (font, colour, size, spacing for Normal, Heading 1-6, Quote and Code). Not set — built-in styles are used.",
       );
     } else {
       // Same clickable "Learn more" pattern as the export modal's template
