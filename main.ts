@@ -38,6 +38,7 @@ import { ExportModal, type ExportModalHost, type ExportSource } from "./src/ui/e
 import { BatchModal, type BatchModalHost } from "./src/ui/batch-modal";
 import { TrueExportSettingTab } from "./src/ui/settings-tab";
 import { WarningsModal } from "./src/ui/warnings-view";
+import { ProRequiredModal } from "./src/ui/pro-required-modal";
 
 const PRO_URL = "https://quietstack.tools/trueexport";
 
@@ -250,7 +251,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   }
 
   private requireProNotice(feature: string): void {
-    new Notice(`${feature} requires TrueExport Pro. Learn more at ${PRO_URL}`);
+    new ProRequiredModal(this.app, feature, PRO_URL).open();
   }
 
   /**

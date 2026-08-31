@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { App, Platform } from "obsidian";
+import { App, Platform, Modal } from "obsidian";
+import { noticeLog } from "../mocks/obsidian";
 import TrueExportPlugin from "../../main";
 
 function makePlugin(): TrueExportPlugin {
@@ -144,6 +145,50 @@ describe("TrueExportPlugin.onload", () => {
       expect((plugin.app.vault as unknown as { created: Map<string, unknown> }).created.has("Note.html")).toBe(true);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("shows a persistent, clickable Pro-upsell modal (not an unclickable transient Notice) for folder export", async () => {
+    const opened: InstanceType<typeof Modal>[] = [];
+    const originalOpen = Modal.prototype.open;
+    const openSpy = vi.spyOn(Modal.prototype, "open").mockImplementation(function (this: InstanceType<typeof Modal>) {
+      opened.push(this);
+      return originalOpen.call(this);
+    });
+    try {
+      const plugin = makePlugin();
+      await plugin.onload();
+      (plugin.app.workspace as unknown as { activeFile: unknown }).activeFile = {
+        path: "Folder/Note.md",
+        extension: "md",
+        basename: "Note",
+        parent: { path: "Folder", name: "Folder" },
+      };
+
+      const noticesBefore = noticeLog.length;
+      const cmd = (
+        plugin as unknown as { commands: { id: string; checkCallback: (c: boolean) => boolean }[] }
+      ).commands.find((c) => c.id === "export-folder")!;
+      expect(cmd.checkCallback(true)).toBe(true);
+      cmd.checkCallback(false);
+
+      // No transient Notice was used for the upsell — a modal was opened instead.
+      expect(noticeLog.length).toBe(noticesBefore);
+      const upsell = opened.find((m) => m.constructor.name === "ProRequiredModal") as unknown as
+        | { contentEl: HTMLElement; isOpen: boolean }
+        | undefined;
+      expect(upsell).toBeDefined();
+
+      // The modal carries a REAL, clickable hyperlink, not just text mentioning a URL.
+      const link = upsell!.contentEl.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe("https://quietstack.tools/trueexport");
+      expect(link!.textContent).toBe("Learn more");
+
+      // It stays open until the user dismisses it (no auto-dismiss timer).
+      expect(upsell!.isOpen).toBe(true);
+    } finally {
+      openSpy.mockRestore();
     }
   });
 
