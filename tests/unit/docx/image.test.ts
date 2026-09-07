@@ -4,9 +4,26 @@ import {
   displaySize,
   imageType,
   sniffImageFormat,
+  sniffAnyImageFormat,
+  isEmbeddableRasterFormat,
+  imageFormatLabel,
   CONTENT_WIDTH_PX,
   contentHeightPx,
 } from "../../../src/docx/image";
+
+// Real AVIF signature bytes (matches a live report this session: an AVIF
+// photo whose first bytes were exactly `00 00 00 1c 66 74 79 70 61 76 69 66`
+// — box size, "ftyp", major brand "avif").
+function avifHeader(): ArrayBuffer {
+  return new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]).buffer;
+}
+function avisHeader(): ArrayBuffer {
+  return new Uint8Array([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x73]).buffer;
+}
+function webpHeader(): ArrayBuffer {
+  // "RIFF"<4-byte size>"WEBP"
+  return new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]).buffer;
+}
 
 // Deliberately NOT a real PNG signature (bytes 0-7 are left zeroed) — these
 // headers exist purely to exercise the IHDR-offset size-reading logic, and
@@ -76,6 +93,63 @@ describe("sniffImageFormat", () => {
   it("returns null for data with no recognisable signature", () => {
     expect(sniffImageFormat(new ArrayBuffer(4))).toBeNull();
     expect(sniffImageFormat(pngHeader(1, 1))).toBeNull(); // no real signature, see pngHeader()'s doc comment
+  });
+
+  it("D25: does NOT identify AVIF/WebP as one of the four embeddable formats", () => {
+    // sniffImageFormat() is scoped to what Word can actually embed —
+    // sniffAnyImageFormat() below is the superset that also recognises these.
+    expect(sniffImageFormat(avifHeader())).toBeNull();
+    expect(sniffImageFormat(webpHeader())).toBeNull();
+  });
+});
+
+describe("sniffAnyImageFormat (§D25)", () => {
+  it("identifies AVIF (still image and image-sequence major brands) from its ISOBMFF ftyp box", () => {
+    expect(sniffAnyImageFormat(avifHeader())).toBe("image/avif");
+    expect(sniffAnyImageFormat(avisHeader())).toBe("image/avif");
+  });
+
+  it("identifies WebP from its RIFF/WEBP container header", () => {
+    expect(sniffAnyImageFormat(webpHeader())).toBe("image/webp");
+  });
+
+  it("still identifies the four embeddable formats too (superset of sniffImageFormat)", () => {
+    expect(sniffAnyImageFormat(realPngHeader(1, 1))).toBe("image/png");
+    expect(sniffAnyImageFormat(jpegHeader(1, 1))).toBe("image/jpeg");
+  });
+
+  it("returns null for genuinely unrecognisable data", () => {
+    expect(sniffAnyImageFormat(new ArrayBuffer(4))).toBeNull();
+  });
+});
+
+describe("isEmbeddableRasterFormat (§D25)", () => {
+  it("is true for the four natively-embeddable raster formats", () => {
+    expect(isEmbeddableRasterFormat(realPngHeader(1, 1), "image/png")).toBe(true);
+    expect(isEmbeddableRasterFormat(jpegHeader(1, 1), "image/jpeg")).toBe(true);
+  });
+
+  it("is false for AVIF and WebP — Word can't natively embed either", () => {
+    expect(isEmbeddableRasterFormat(avifHeader(), "image/avif")).toBe(false);
+    expect(isEmbeddableRasterFormat(webpHeader(), "image/webp")).toBe(false);
+  });
+
+  it("trusts the sniffed bytes over a wrong declared mimeType either way", () => {
+    // Real PNG bytes mislabelled as AVIF — still embeddable, because sniffing wins.
+    expect(isEmbeddableRasterFormat(realPngHeader(1, 1), "image/avif")).toBe(true);
+    // Real AVIF bytes mislabelled as PNG — NOT embeddable; the mislabel doesn't help.
+    expect(isEmbeddableRasterFormat(avifHeader(), "image/png")).toBe(false);
+  });
+});
+
+describe("imageFormatLabel", () => {
+  it("gives AVIF/WebP a friendly name for warnings/placeholders", () => {
+    expect(imageFormatLabel("image/avif")).toBe("AVIF");
+    expect(imageFormatLabel("image/webp")).toBe("WebP");
+  });
+
+  it("passes an unrecognised format string through unchanged", () => {
+    expect(imageFormatLabel("image/heic")).toBe("image/heic");
   });
 });
 

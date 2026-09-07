@@ -29,7 +29,7 @@ import type {
 import { slugify } from "../core/util/slug";
 import { safeExternalUrl } from "../core/util/url";
 import { RUN_LANGUAGE } from "./styles";
-import { imageType, displaySize, contentHeightPx } from "./image";
+import { imageType, displaySize, contentHeightPx, isEmbeddableRasterFormat, sniffAnyImageFormat, imageFormatLabel } from "./image";
 import type { RenderContext } from "./context";
 
 export type InlineRun =
@@ -207,6 +207,16 @@ export function buildImage(
   if (!res.data) return { placeholder: `[Image unavailable: ${name}]` };
   // An SVG that reached here was not rasterised (no rasteriser injected).
   if (res.mimeType === "image/svg+xml") return { placeholder: `[SVG image: ${name}]` };
+  // A raster image Word can't natively embed (AVIF, WebP, …) that reached
+  // here was not transcoded (no rasterizeImage capability injected — mobile
+  // or pure tests — or the transcode itself failed; see
+  // transcodeUnsupportedImages() in src/docx/index.ts, §D25). Embedding the
+  // raw bytes would hand Word data it likely can't decode at all — a
+  // placeholder is the honest outcome, same shape as the SVG case above.
+  if (!isEmbeddableRasterFormat(res.data, res.mimeType)) {
+    const format = sniffAnyImageFormat(res.data) ?? res.mimeType ?? "unrecognised format";
+    return { placeholder: `[${imageFormatLabel(format)} image not supported by Word: ${name}]` };
+  }
 
   // A normal, unresized image previously only had its width capped to the
   // content width — its height scaled proportionally with no ceiling, so a

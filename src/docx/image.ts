@@ -98,6 +98,74 @@ function effectiveMimeType(data: ArrayBuffer, declared: string | undefined): str
   return sniffImageFormat(data) ?? declared;
 }
 
+export type AnyImageFormat = "image/png" | "image/jpeg" | "image/gif" | "image/bmp" | "image/avif" | "image/webp";
+
+/**
+ * Sniff ANY recognisable raster format, including ones this renderer can't
+ * natively embed in a DOCX (§D25) — AVIF and WebP, both increasingly common
+ * as the DEFAULT format modern sites/CDNs serve (confirmed via a real-world
+ * report: a photo served as AVIF, byte signature `ftyp....avif`).
+ * `sniffImageFormat` above stays scoped to the four natively-embeddable
+ * types (used for sizing/embedding decisions); this superset exists
+ * separately so callers deciding whether an image needs transcoding, or
+ * what to call it in a warning, can name the ACTUAL format even when it
+ * isn't one Word can display. Byte-signature based, not extension/declared-
+ * mimeType based, for the same reason `sniffImageFormat` is (§D25).
+ */
+export function sniffAnyImageFormat(data: ArrayBuffer): AnyImageFormat | null {
+  const embeddable = sniffImageFormat(data);
+  if (embeddable) return embeddable;
+  const view = new DataView(data);
+  // AVIF/AVIS: an ISOBMFF ("MP4-family") box — 4-byte big-endian box size,
+  // then ASCII "ftyp", then a 4-byte major brand. "avif" = a still image,
+  // "avis" = an image sequence; both are the AVIF codec.
+  if (data.byteLength >= 12 && view.getUint32(4) === 0x66747970 /* "ftyp" */) {
+    const brand = view.getUint32(8);
+    if (brand === 0x61766966 /* "avif" */ || brand === 0x61766973 /* "avis" */) return "image/avif";
+  }
+  // WebP: a RIFF container — "RIFF", 4-byte little-endian chunk size, "WEBP".
+  if (
+    data.byteLength >= 12 &&
+    view.getUint32(0) === 0x52494646 /* "RIFF" */ &&
+    view.getUint32(8) === 0x57454250 /* "WEBP" */
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function isEmbeddableFormatString(format: string | undefined): boolean {
+  return format === "image/png" || format === "image/jpeg" || format === "image/gif" || format === "image/bmp";
+}
+
+/**
+ * Is this resource one of the four raster types Word can natively decode
+ * and embed (§D25)? False for AVIF/WebP/anything else unrecognised, which
+ * the DOCX renderer must either transcode to PNG first or degrade to a
+ * placeholder — embedding the raw bytes as-is would hand Word/Pages data
+ * they can't necessarily open, declared as a format they aren't.
+ *
+ * Uses the BROAD sniffer (`sniffAnyImageFormat`), not just the narrow one —
+ * critically, when the bytes are positively identified as AVIF/WebP, that
+ * verdict is final regardless of what mimeType was declared: a real AVIF
+ * file mislabelled "image/png" (whether by a wrong extension locally, or a
+ * misleading server header remotely) must NOT be judged embeddable just
+ * because the label says so. The declared mimeType is trusted only when
+ * sniffing is genuinely inconclusive (too little/corrupt data to identify
+ * ANY format) — same fallback rationale as `sniffImageFormat`'s doc comment.
+ */
+export function isEmbeddableRasterFormat(data: ArrayBuffer, declaredMimeType: string | undefined): boolean {
+  const sniffed = sniffAnyImageFormat(data);
+  if (sniffed) return isEmbeddableFormatString(sniffed);
+  return isEmbeddableFormatString(declaredMimeType);
+}
+
+/** A short, human-friendly name for a warning/placeholder message (§D25). */
+export function imageFormatLabel(format: string): string {
+  const known: Partial<Record<AnyImageFormat, string>> = { "image/avif": "AVIF", "image/webp": "WebP" };
+  return known[format as AnyImageFormat] ?? format;
+}
+
 export function imageType(data: ArrayBuffer, declaredMimeType: string | undefined): DocxImageType {
   switch (effectiveMimeType(data, declaredMimeType)) {
     case "image/png":

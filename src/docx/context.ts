@@ -19,6 +19,14 @@ export interface DocxDeps {
    * intended physical size while still using the sharper pixel data.
    */
   rasterizeSvg?: (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer; width: number; height: number }>;
+
+  /**
+   * Transcode a raster image format Word can't natively embed (AVIF, WebP,
+   * …) to PNG bytes (§D25). Injected because it needs Electron; absent on
+   * mobile and in pure tests, where such an image degrades to a placeholder
+   * + warning instead — never embedded as undecodable raw bytes.
+   */
+  rasterizeImage?: (data: ArrayBuffer, mimeType: string) => Promise<ArrayBuffer>;
 }
 
 export interface RenderContext {

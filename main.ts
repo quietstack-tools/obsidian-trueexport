@@ -14,6 +14,7 @@ import {
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
 import { createElectronSvgRasterizer } from "./src/svg-rasterizer-electron";
+import { createElectronImageRasterizer } from "./src/image-rasterizer-electron";
 import { createFsWriter } from "./src/fs-writer";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
@@ -69,8 +70,14 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       // default, so every real Mermaid diagram hit it. The Electron seam
       // captures a real off-screen page render instead, which has no such
       // restriction — see src/svg-rasterizer-electron.ts.
+      // Image transcoding (AVIF/WebP → PNG, §D25) is the same desktop-only
+      // Electron-capture pattern — see src/image-rasterizer-electron.ts.
       ...(Platform.isDesktop
-        ? { htmlToPdf: createElectronHtmlToPdf(), rasterizeSvg: createElectronSvgRasterizer() }
+        ? {
+            htmlToPdf: createElectronHtmlToPdf(),
+            rasterizeSvg: createElectronSvgRasterizer(),
+            rasterizeImage: createElectronImageRasterizer(),
+          }
         : {}),
     };
 

@@ -19,7 +19,7 @@ import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
 import { renderBlocks, renderFrontmatterTable, renderFootnoteContent } from "./blocks";
 import { sanitizeAnchor } from "./inline";
-import { PAGE_SIZES_TWIPS } from "./image";
+import { PAGE_SIZES_TWIPS, isEmbeddableRasterFormat, sniffAnyImageFormat, imageFormatLabel } from "./image";
 import type { DocxDeps, RenderContext } from "./context";
 import type { ReferenceStyles } from "./reference-styles";
 
@@ -53,7 +53,12 @@ export async function renderDocx(
   const deps = render.deps ?? {};
 
   // Rasterise SVGs to PNG (§4.9) before rendering, so rendering stays sync.
-  await rasterizeSvgs(collectResources(doc.blocks, doc.footnotes), deps, render.warnings, doc.sourcePath);
+  const resources = collectResources(doc.blocks, doc.footnotes);
+  await rasterizeSvgs(resources, deps, render.warnings, doc.sourcePath);
+  // Transcode any raster format Word can't natively embed — AVIF, WebP, …
+  // (§D25) — to PNG before rendering, same "resolve before sync render"
+  // shape as the SVG pass above.
+  await transcodeUnsupportedImages(resources, deps, render.warnings, doc.sourcePath);
 
   // A local counter, fresh per render call — every bookmark created anywhere
   // in this document (headings, block refs, footnote NOTEREF targets) draws
@@ -228,4 +233,47 @@ async function rasterizeSvgs(
 
 function svgName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * Transcode any raster image Word can't natively embed (AVIF, WebP, or
+ * anything else outside the four formats it supports) to PNG (§D25). SVGs
+ * are excluded — rasterizeSvgs() above already resolved (or gave up on)
+ * those. Mirrors rasterizeSvgs()'s degrade-don't-abort shape exactly: on
+ * success the resource becomes real PNG bytes; on failure OR when no
+ * rasterizeImage capability is injected (mobile, or pure tests), the
+ * original bytes are left untouched and a warning is recorded — buildImage()
+ * (src/docx/inline.ts) degrades any still-unembeddable resource reaching it
+ * to a placeholder, the same way it already does for an un-rasterised SVG.
+ */
+async function transcodeUnsupportedImages(
+  resources: MediaResource[],
+  deps: DocxDeps,
+  warnings: WarningCollector | undefined,
+  sourcePath: string,
+): Promise<void> {
+  for (const res of resources) {
+    if (res.kind !== "binary" || !res.data || res.mimeType === "image/svg+xml") continue;
+    if (isEmbeddableRasterFormat(res.data, res.mimeType)) continue; // already fine — nothing to do
+
+    if (deps.rasterizeImage) {
+      try {
+        const captureMimeType = sniffAnyImageFormat(res.data) ?? res.mimeType ?? "application/octet-stream";
+        res.data = await deps.rasterizeImage(res.data, captureMimeType);
+        res.mimeType = "image/png";
+        continue; // success — no warning
+      } catch {
+        // Fall through to the placeholder + warning below. Leave the
+        // original (still-undecodable-by-Word) bytes in place; buildImage()
+        // is what actually degrades them to a placeholder.
+      }
+    }
+
+    const format = sniffAnyImageFormat(res.data) ?? res.mimeType ?? "unrecognised format";
+    warnings?.add({
+      construct: "image",
+      message: `Couldn't embed the image "${svgName(res.originalPath)}" (${imageFormatLabel(format)}) for Word; it was shown as a placeholder.`,
+      sourcePath,
+    });
+  }
 }
