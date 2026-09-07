@@ -53,8 +53,53 @@ export function contentWidthTwips(pageSize: PageSize, orientation: Orientation):
   return widthTwips - MARGIN_TWIPS * 2;
 }
 
-export function imageType(mimeType: string | undefined): DocxImageType {
-  switch (mimeType) {
+/**
+ * Sniff the raster format from the file's own magic-byte signature, ignoring
+ * whatever MIME type string it arrived labelled with (§D25).
+ *
+ * A declared MIME type isn't trustworthy enough to key sizing/embedding on:
+ * a local file's mimeType is a guess from its extension
+ * (VaultAdapter.getMimeType), and a remote-fetched image's mimeType is
+ * whatever Content-Type header the server happened to send, which real
+ * hosts and CDNs sometimes give as a real-but-non-canonical string —
+ * `image/x-png` (a legacy alias, still genuinely a PNG), a stray
+ * charset/vendor suffix, etc. `imageDimensions`/`imageType` previously
+ * matched the declared string EXACTLY against `"image/png"` et al.: a
+ * non-canonical-but-valid header silently failed that match, so a real,
+ * perfectly readable image's dimensions were never read, and the renderer
+ * fell back to its generic 400×300 default — producing a genuinely
+ * distorted aspect ratio for an image that was never actually broken.
+ * Confirmed exactly reproducing a real-world report this way (a remote PNG
+ * served as `image/x-png`; `imageType` separately defaulting to `"png"`
+ * regardless is why the image still embedded and displayed, just squashed).
+ * The declared mimeType is still consulted as a fallback when the bytes
+ * don't match any of the four signatures this renderer supports (e.g. truly
+ * malformed/too-short data), so nothing regresses for that case.
+ */
+export function sniffImageFormat(data: ArrayBuffer): "image/png" | "image/jpeg" | "image/gif" | "image/bmp" | null {
+  const view = new DataView(data);
+  if (data.byteLength >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a) {
+    return "image/png";
+  }
+  if (data.byteLength >= 3 && view.getUint8(0) === 0xff && view.getUint8(1) === 0xd8 && view.getUint8(2) === 0xff) {
+    return "image/jpeg";
+  }
+  if (data.byteLength >= 6 && view.getUint32(0) === 0x47494638 /* "GIF8" */) {
+    return "image/gif";
+  }
+  if (data.byteLength >= 2 && view.getUint8(0) === 0x42 && view.getUint8(1) === 0x4d /* "BM" */) {
+    return "image/bmp";
+  }
+  return null;
+}
+
+/** The declared or sniffed format, sniffed bytes taking priority (§D25). */
+function effectiveMimeType(data: ArrayBuffer, declared: string | undefined): string | undefined {
+  return sniffImageFormat(data) ?? declared;
+}
+
+export function imageType(data: ArrayBuffer, declaredMimeType: string | undefined): DocxImageType {
+  switch (effectiveMimeType(data, declaredMimeType)) {
     case "image/png":
       return "png";
     case "image/jpeg":
@@ -76,8 +121,9 @@ export interface Dimensions {
 }
 
 /** Read intrinsic pixel dimensions from a raster image header, or null. */
-export function imageDimensions(data: ArrayBuffer, mimeType: string | undefined): Dimensions | null {
+export function imageDimensions(data: ArrayBuffer, declaredMimeType: string | undefined): Dimensions | null {
   const view = new DataView(data);
+  const mimeType = effectiveMimeType(data, declaredMimeType);
   try {
     if (mimeType === "image/png") return pngSize(view);
     if (mimeType === "image/gif") return gifSize(view);

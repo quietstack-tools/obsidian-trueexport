@@ -224,7 +224,9 @@ export function buildImage(
       : undefined;
   const size = displaySize(res.data, res.mimeType, node.width, node.height, maxHeightPx, intended);
   // SVG was handled above, so the type here is always a raster format.
-  const type = imageType(res.mimeType) as "png" | "jpg" | "gif" | "bmp";
+  // Sniffed from the actual bytes, not just the declared mimeType (§D25) —
+  // same rationale as displaySize()/imageDimensions() below.
+  const type = imageType(res.data, res.mimeType) as "png" | "jpg" | "gif" | "bmp";
   return new ImageRun({ type, data: new Uint8Array(res.data), transformation: size });
 }
 

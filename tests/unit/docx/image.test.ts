@@ -3,13 +3,31 @@ import {
   imageDimensions,
   displaySize,
   imageType,
+  sniffImageFormat,
   CONTENT_WIDTH_PX,
   contentHeightPx,
 } from "../../../src/docx/image";
 
+// Deliberately NOT a real PNG signature (bytes 0-7 are left zeroed) — these
+// headers exist purely to exercise the IHDR-offset size-reading logic, and
+// their lack of a real signature means sniffImageFormat() can't identify them
+// either, so imageDimensions()/imageType() fall back to the declared
+// mimeType argument, exactly like before sniffing was added (§D25).
 function pngHeader(w: number, h: number): ArrayBuffer {
   const buf = new ArrayBuffer(24);
   const v = new DataView(buf);
+  v.setUint32(16, w);
+  v.setUint32(20, h);
+  return buf;
+}
+// A REAL PNG signature (bytes 0-7) followed by an IHDR carrying w/h — used
+// specifically to exercise sniffImageFormat() and the declared-mimeType-is-
+// wrong scenario, which pngHeader() above can't (no real signature).
+function realPngHeader(w: number, h: number): ArrayBuffer {
+  const buf = new ArrayBuffer(24);
+  const v = new DataView(buf);
+  v.setUint32(0, 0x89504e47);
+  v.setUint32(4, 0x0d0a1a0a);
   v.setUint32(16, w);
   v.setUint32(20, h);
   return buf;
@@ -36,9 +54,28 @@ function jpegHeader(w: number, h: number): ArrayBuffer {
 
 describe("imageType", () => {
   it("maps MIME types, defaulting to png", () => {
-    expect(imageType("image/jpeg")).toBe("jpg");
-    expect(imageType("image/svg+xml")).toBe("svg");
-    expect(imageType(undefined)).toBe("png");
+    expect(imageType(new ArrayBuffer(0), "image/jpeg")).toBe("jpg");
+    expect(imageType(new ArrayBuffer(0), "image/svg+xml")).toBe("svg");
+    expect(imageType(new ArrayBuffer(0), undefined)).toBe("png");
+  });
+
+  it("D25: uses the SNIFFED format over a mismatched declared mimeType", () => {
+    // Real JPEG bytes mislabelled as image/png — the sniffed signature wins.
+    expect(imageType(jpegHeader(10, 10), "image/png")).toBe("jpg");
+  });
+});
+
+describe("sniffImageFormat", () => {
+  it("identifies PNG, JPEG, GIF and BMP from their magic bytes", () => {
+    expect(sniffImageFormat(realPngHeader(1, 1))).toBe("image/png");
+    expect(sniffImageFormat(jpegHeader(1, 1))).toBe("image/jpeg");
+    expect(sniffImageFormat(Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]).buffer)).toBe("image/gif");
+    expect(sniffImageFormat(Uint8Array.from([0x42, 0x4d, 0, 0, 0, 0]).buffer)).toBe("image/bmp");
+  });
+
+  it("returns null for data with no recognisable signature", () => {
+    expect(sniffImageFormat(new ArrayBuffer(4))).toBeNull();
+    expect(sniffImageFormat(pngHeader(1, 1))).toBeNull(); // no real signature, see pngHeader()'s doc comment
   });
 });
 
@@ -48,6 +85,21 @@ describe("imageDimensions", () => {
     expect(imageDimensions(gifHeader(64, 32), "image/gif")).toEqual({ width: 64, height: 32 });
     expect(imageDimensions(bmpHeader(200, 100), "image/bmp")).toEqual({ width: 200, height: 100 });
     expect(imageDimensions(jpegHeader(300, 150), "image/jpeg")).toEqual({ width: 300, height: 150 });
+  });
+
+  // D25: root cause of the reported remote-image distortion. A remote host
+  // can send a real-but-non-canonical Content-Type (e.g. the legacy alias
+  // "image/x-png" for a genuinely valid PNG) — the exact scenario that
+  // reproduced the reported bug byte-for-byte (a 1200x675 PNG squashed to
+  // the generic 400x300/4:3 fallback because "image/x-png" !== "image/png").
+  it("reads real dimensions from the ACTUAL bytes even when the declared mimeType is non-canonical/wrong", () => {
+    expect(imageDimensions(realPngHeader(1200, 675), "image/x-png")).toEqual({ width: 1200, height: 675 });
+    // Local vault images go through the exact same function — same fix,
+    // same code path, not a remote-only patch.
+    expect(imageDimensions(realPngHeader(1200, 675), "application/octet-stream")).toEqual({
+      width: 1200,
+      height: 675,
+    });
   });
 
   it("returns null for unknown or truncated data", () => {
