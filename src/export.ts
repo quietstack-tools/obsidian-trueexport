@@ -227,19 +227,55 @@ async function resolveMermaid(
  * rendering. This is the primary defence for untrusted note HTML; the renderer
  * keeps a regex sanitiser as an always-on baseline. No-op when no sanitiser is
  * injected (e.g. tests) — the renderer still applies its baseline.
+ *
+ * §D27: sanitisation must never silently vanish an entire block. Some raw-HTML
+ * blocks are ONLY a dangerous element (e.g. a standalone `<iframe>…</iframe>`)
+ * — DOMPurify correctly removes the whole thing (it must never load/execute),
+ * but that legitimately leaves nothing behind. If we just kept `raw: ""`, the
+ * exported document would show that line as if it had never existed — the
+ * bug this fixes. Detect that specific case (non-blank input → blank output)
+ * and convert the block into an UnsupportedNode carrying the ORIGINAL raw
+ * markup as its `reason`, reusing the IDM's own established pattern for
+ * "unrepresentable content" (see the doc comment on core/model/nodes.ts:
+ * "Anything unrepresentable becomes an UnsupportedNode carrying a reason —
+ * never dropped silently"). Both renderers already render `reason` safely for
+ * their own medium — html/index.ts HTML-escapes it into a <div>, docx/blocks.ts
+ * prints it as a literal, non-interpreted TextRun — so the removed markup
+ * becomes visible, inert text instead of disappearing, with no new
+ * per-renderer code and no weakening of what DOMPurify actually strips.
  */
-function sanitizeHtmlBlocks(blocks: BlockNode[], deps?: ExportDeps): BlockNode[] {
+function sanitizeHtmlBlocks(
+  blocks: BlockNode[],
+  deps: ExportDeps | undefined,
+  warnings: WarningCollector,
+  sourcePath: string,
+): BlockNode[] {
   const sanitize = deps?.sanitizeHtml;
   if (!sanitize) return blocks;
   const walk = (bs: BlockNode[]): BlockNode[] =>
     bs.map((b) => {
-      if (b.type === "htmlBlock") return { ...b, raw: sanitize(b.raw) };
+      if (b.type === "htmlBlock") return sanitizeHtmlBlock(b, sanitize, warnings, sourcePath);
       if (b.type === "blockquote" || b.type === "callout") return { ...b, children: walk(b.children) };
       if (b.type === "list")
         return { ...b, children: b.children.map((it) => ({ ...it, children: walk(it.children) })) };
       return b;
     });
   return walk(blocks);
+}
+
+function sanitizeHtmlBlock(
+  block: Extract<BlockNode, { type: "htmlBlock" }>,
+  sanitize: (html: string) => string,
+  warnings: WarningCollector,
+  sourcePath: string,
+): BlockNode {
+  const sanitized = sanitize(block.raw);
+  if (block.raw.trim() !== "" && sanitized.trim() === "") {
+    const reason = `Unsafe HTML was removed for safety and is shown below as plain text, not live markup: ${block.raw}`;
+    warnings.add({ construct: "html", message: reason, line: block.position?.line, sourcePath });
+    return { ...block, type: "unsupported", reason, construct: "html" };
+  }
+  return { ...block, raw: sanitized };
 }
 
 /**
@@ -384,7 +420,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const warnings = new WarningCollector();
   const doc = await buildDocument(adapter, sourcePath, options, warnings, deps);
   doc.blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
-  doc.blocks = sanitizeHtmlBlocks(doc.blocks, deps);
+  doc.blocks = sanitizeHtmlBlocks(doc.blocks, deps, warnings, sourcePath);
   const pro = settings.licenceActivated;
 
   // Render fully in memory first; only then write, so a failure never leaves a

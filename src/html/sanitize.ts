@@ -12,8 +12,10 @@
 //
 // Pure string function: no DOM dependency, unit-testable in core-style tests.
 
-// Elements removed entirely, including their content: they execute code or pull
-// remote resources with no useful textual fallback.
+// Elements whose markup can never survive as LIVE HTML (they execute code or
+// pull remote resources): the element and its content are replaced with their
+// own escaped source text (§D27) rather than deleted outright, so the note's
+// content is still visible/traceable in the export — just inert.
 const DROP_WITH_CONTENT = ["script", "style", "iframe", "object", "embed", "applet", "noscript", "template"];
 
 // Elements whose tags we strip (keeping any inner text), because they can load
@@ -25,17 +27,31 @@ const DROP_TAG_ONLY = ["base", "meta", "link", "frame", "frameset", "form", "svg
 // drop it wholesale to avoid data:text/html and friends.
 const DANGEROUS_SCHEME = /^\s*(?:javascript|vbscript|data|file|blob):/i;
 
+/**
+ * A dangerous element (script, iframe, …) must never survive as live/loadable
+ * markup, but §D27 requires it not vanish without a trace either — turn the
+ * matched source text into its own HTML-escaped text instead of deleting it,
+ * so it still renders as visible, inert content in the page rather than
+ * silently disappearing. Escaping only &/</> is sufficient: this becomes text
+ * NODE content, never an attribute value.
+ */
+function escapeAsInertText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** Sanitise a raw HTML block before it is emitted into the exported document. */
 export function sanitizeRawHtml(raw: string): string {
   let html = raw;
 
-  // 1. Remove script/style/iframe/etc. elements with their content. The [^]
-  //    class matches across newlines.
+  // 1. Neutralise script/style/iframe/etc. elements — dangerous as live markup,
+  //    but their source text is kept, escaped, so it still renders as visible
+  //    inert text rather than vanishing (§D27). The [^] class matches across
+  //    newlines.
   for (const tag of DROP_WITH_CONTENT) {
     const el = new RegExp(`<${tag}\\b[^>]*>[^]*?</${tag}\\s*>`, "gi");
-    html = html.replace(el, "");
+    html = html.replace(el, (match) => escapeAsInertText(match));
     // …and any unclosed/self-closed opener left behind.
-    html = html.replace(new RegExp(`<${tag}\\b[^>]*>`, "gi"), "");
+    html = html.replace(new RegExp(`<${tag}\\b[^>]*>`, "gi"), (match) => escapeAsInertText(match));
   }
 
   // 2. Strip the opening/closing tags of remote-loading / redirecting elements
