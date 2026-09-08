@@ -49,6 +49,8 @@ export interface TrueExportSettings {
   licenceKey: string;
   licenceActivated: boolean;
   deviceLimit: number;
+  /** This device's Polar activation id (empty when not activated). */
+  licenceActivationId: string;
   // Remembered choices
   lastFormat: ExportFormat;
   lastTemplate: TemplateId;
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: TrueExportSettings = {
   licenceKey: "",
   licenceActivated: false,
   deviceLimit: 0,
+  licenceActivationId: "",
   lastFormat: "docx",
   lastTemplate: "default",
 };

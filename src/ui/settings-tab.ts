@@ -336,7 +336,9 @@ export class TrueExportSettingTab extends PluginSettingTab {
           .setCta()
           .onClick(async () => {
             if (licence.isActivated) {
-              await licence.deactivate();
+              b.setDisabled(true).setButtonText("Deactivating…");
+              const outcome = await licence.deactivate();
+              new Notice(outcome.message);
               this.display();
               return;
             }

@@ -8,7 +8,7 @@ function makeTab(activated = false) {
     isActivated: activated,
     deviceLimit: activated ? 2 : 0,
     activate: vi.fn(async () => ({ activated: true, message: "TrueExport Pro activated. Thank you!" })),
-    deactivate: vi.fn(async () => {}),
+    deactivate: vi.fn(async () => ({ activated: false, message: "Licence deactivated." })),
   };
   const host = {
     settings: { ...DEFAULT_SETTINGS },
@@ -224,6 +224,18 @@ describe("TrueExportSettingTab — licence + Pro gating", () => {
     )!;
     activateBtn.click();
     expect(licence.activate).toHaveBeenCalledWith("MY-KEY");
+  });
+
+  it("calls licence.deactivate when Deactivate is clicked, and shows its outcome message", async () => {
+    const { tab, licence } = makeTab(true);
+    tab.display();
+    const deactivateBtn = Array.from(tab.containerEl.querySelectorAll("button")).find(
+      (b) => b.textContent === "Deactivate",
+    )!;
+    deactivateBtn.click();
+    // The click handler is async — let its awaited licence.deactivate() resolve.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(licence.deactivate).toHaveBeenCalledOnce();
   });
 
   it("shows the 'Get TrueExport Pro' upsell only when not activated", () => {
