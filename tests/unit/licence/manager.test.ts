@@ -75,17 +75,18 @@ describe("LicenceManager.activate", () => {
     expect(host.settings.licenceActivated).toBe(false);
   });
 
-  // The actual reported defect: a 6th-device activation attempt must show a
-  // message distinct from "key not recognised" — /activate's documented 403
-  // NotPermitted response (see src/licence/polar.ts) surfaces through here
-  // as a normal "invalid" result; this confirms the manager passes that
-  // message through unchanged rather than genericising it.
-  it("surfaces the device-limit-reached message distinctly (not the generic invalid-key message)", async () => {
+  // The actual reported defect: an /activate 403 NotPermitted rejection
+  // (device limit reached, a revoked/refunded key, or any other reason —
+  // see src/licence/polar.ts, which surfaces Polar's own `detail` text
+  // verbatim rather than a single hardcoded guess) must show a message
+  // distinct from "key not recognised". This confirms the manager passes
+  // whatever specific message it's given through unchanged, rather than
+  // genericising it.
+  it("surfaces a 403/NotPermitted rejection's specific message distinctly (not the generic invalid-key message)", async () => {
     const host = makeHost();
-    const limitMessage =
-      "You've reached this key's device limit. Deactivate a device in the Polar customer portal, or contact support.";
+    const limitMessage = "Activation failed: License key is not active. This license key can not be activated.";
     const mgr = new LicenceManager(host, vi.fn<Validator>(), async () => ({ status: "invalid", message: limitMessage }));
-    const outcome = await mgr.activate("REAL-KEY-BUT-NO-SLOTS-LEFT");
+    const outcome = await mgr.activate("REFUNDED-KEY");
     expect(outcome.activated).toBe(false);
     expect(outcome.message).toBe(limitMessage);
     expect(outcome.message).not.toMatch(/wasn't recognised/);

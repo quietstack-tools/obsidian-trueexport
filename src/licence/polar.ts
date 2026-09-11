@@ -28,8 +28,9 @@ export interface LicenceResult {
    * "valid"   — server reached, key accepted → activate.
    * "invalid" — server reached, key genuinely rejected: a 200 response that
    *             isn't granted, a 404 (Polar's documented "key not found"),
-   *             or a 403 NotPermitted from /activate (device limit reached
-   *             or activation not supported on this key) → do not activate.
+   *             or a 403 NotPermitted from /activate (device limit reached,
+   *             a revoked/refunded key, or any other reason Polar's own
+   *             `detail` text explains) → do not activate.
    * "error"   — network error / timeout / any other unexpected non-200 →
    *             fail open (§7.2 rule 3).
    */
@@ -152,17 +153,25 @@ export async function activateLicence(key: string, label: string): Promise<Licen
       signal: controller.signal,
     });
 
-    // Polar's documented response for this endpoint specifically: "License
-    // key activation not supported or limit reached." A genuine, confirmed
-    // rejection — not a connectivity problem — so (like the 404 case below)
-    // this must NOT be lumped into the generic fail-open "error" status, and
-    // it must be a message DISTINCT from "key not recognised": the key is
-    // perfectly valid, there's just no room left for another device.
+    // Polar's documented response for this endpoint specifically: a 403 with
+    // {error: "NotPermitted", detail: "..."}. "NotPermitted" covers more than
+    // one real reason — confirmed via a live request against a refunded key,
+    // whose `detail` read "License key is not active. This license key can
+    // not be activated." (a revocation, NOT a device-limit case at all).
+    // Rather than guess/hardcode a single message for every possible
+    // sub-case (fragile, and silently wrong whenever Polar adds or rewords
+    // one), surface Polar's own `detail` string directly — it's already
+    // written to be shown to the end user. A genuine, confirmed rejection
+    // either way — not a connectivity problem — so (like the 404 case below)
+    // this must NOT be lumped into the generic fail-open "error" status.
     if (res.status === 403) {
+      const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      const detail = data && typeof data["detail"] === "string" ? data["detail"] : undefined;
       return {
         status: "invalid",
-        message:
-          "You've reached this key's device limit. Deactivate a device in the Polar customer portal, or contact support.",
+        message: detail
+          ? `Activation failed: ${detail}`
+          : "Activation failed. Check the Polar customer portal, or contact support.",
       };
     }
     if (res.status === 404) {

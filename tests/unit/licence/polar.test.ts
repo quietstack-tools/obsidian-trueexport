@@ -129,10 +129,13 @@ describe("activateLicence", () => {
     expect(result.deviceLimit).toBe(5);
   });
 
-  // The actual defect this round fixes: a distinct, actionable message for
-  // "no device slots left", confirmed against Polar's documented 403
-  // response for THIS endpoint specifically ({error: "NotPermitted", ...}).
-  it("returns 'invalid' with a device-limit-specific message on a 403 NotPermitted response — NOT the generic invalid-key message", async () => {
+  // A 403 NotPermitted covers more than one real reason (confirmed via a
+  // live request against a REFUNDED key, which returned a revocation detail,
+  // not a device-limit one) — rather than hardcode one guessed message, the
+  // fix surfaces Polar's own `detail` text verbatim, whatever it says. These
+  // two cases confirm BOTH a device-limit detail AND a revoked-key detail
+  // pass through distinctly, rather than collapsing to one canned message.
+  it("returns 'invalid' surfacing Polar's own detail text verbatim for a device-limit-reached 403", async () => {
     mockFetch(async () => ({
       ok: false,
       status: 403,
@@ -140,8 +143,32 @@ describe("activateLicence", () => {
     }));
     const result = await activateLicence("KEY", DEVICE_LABEL);
     expect(result.status).toBe("invalid");
-    expect(result.message).toMatch(/device limit/i);
+    expect(result.message).toContain("License key activation limit reached.");
     expect(result.message).not.toMatch(/wasn't recognised/);
+  });
+
+  it("returns 'invalid' surfacing Polar's own detail text verbatim for a revoked/refunded-key 403 (confirmed via a live request)", async () => {
+    mockFetch(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        error: "NotPermitted",
+        detail: "License key is not active. This license key can not be activated.",
+      }),
+    }));
+    const result = await activateLicence("REFUNDED-KEY", DEVICE_LABEL);
+    expect(result.status).toBe("invalid");
+    expect(result.message).toContain("License key is not active. This license key can not be activated.");
+    // Distinct from the device-limit case above — neither message is hardcoded/guessed.
+    expect(result.message).not.toMatch(/device limit/i);
+    expect(result.message).not.toMatch(/wasn't recognised/);
+  });
+
+  it("falls back to a generic-but-honest message on a 403 with no parseable detail", async () => {
+    mockFetch(async () => ({ ok: false, status: 403, json: async () => ({ error: "NotPermitted" }) }));
+    const result = await activateLicence("KEY", DEVICE_LABEL);
+    expect(result.status).toBe("invalid");
+    expect(result.message).toMatch(/Activation failed/);
   });
 
   it("returns 'invalid' with the standard message on a 404 (key not found)", async () => {
