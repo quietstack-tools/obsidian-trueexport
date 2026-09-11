@@ -13,7 +13,10 @@ to Obsidian-specific Markdown syntax. Full requirements are in TECH_SPEC.md.
   no other CDN fetches. The remote fetch must never abort an export — a network
   error, non-200, or non-image response degrades to a placeholder + warning.
 - NEVER read or write files outside the vault, except the user's chosen export
-  destination.
+  destination. This exception is implemented as the "Custom output folder"
+  setting: a real filesystem folder picked via the native OS dialog on
+  desktop (src/fs-writer.ts, wired in main.ts's `writer()`), never a
+  free-typed path. Mobile has no such path — it falls back to the vault root.
 - NEVER modify the user's source notes. Export is read-only against the vault.
 - NEVER minify or obfuscate build output. Obsidian's automated review rejects it.
 - NEVER use eval() or the Function constructor.

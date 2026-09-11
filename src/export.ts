@@ -13,10 +13,11 @@ import { parseMarkdown } from "./core/parser";
 import { resolveDocument } from "./core/resolver";
 import { parseLatex } from "./math/parse";
 import type { RemoteImageFetcher } from "./core/resolver/context";
-import { renderDocx, type DocxDeps } from "./docx";
+import { renderDocx, collectResources, type DocxDeps } from "./docx";
 import { parseReferenceStyles, type ReferenceStyles } from "./docx/reference-styles";
 import { renderHtml } from "./html";
 import { renderPdf, type HtmlToPdf } from "./pdf";
+import { isWellFormedSvg } from "./core/util/svg";
 import {
   FORMAT_EXTENSIONS,
   renderFilename,
@@ -226,13 +227,34 @@ async function resolveMermaid(
  * rendering. This is the primary defence for untrusted note HTML; the renderer
  * keeps a regex sanitiser as an always-on baseline. No-op when no sanitiser is
  * injected (e.g. tests) — the renderer still applies its baseline.
+ *
+ * §D27: sanitisation must never silently vanish an entire block. Some raw-HTML
+ * blocks are ONLY a dangerous element (e.g. a standalone `<iframe>…</iframe>`)
+ * — DOMPurify correctly removes the whole thing (it must never load/execute),
+ * but that legitimately leaves nothing behind. If we just kept `raw: ""`, the
+ * exported document would show that line as if it had never existed — the
+ * bug this fixes. Detect that specific case (non-blank input → blank output)
+ * and convert the block into an UnsupportedNode carrying the ORIGINAL raw
+ * markup as its `reason`, reusing the IDM's own established pattern for
+ * "unrepresentable content" (see the doc comment on core/model/nodes.ts:
+ * "Anything unrepresentable becomes an UnsupportedNode carrying a reason —
+ * never dropped silently"). Both renderers already render `reason` safely for
+ * their own medium — html/index.ts HTML-escapes it into a <div>, docx/blocks.ts
+ * prints it as a literal, non-interpreted TextRun — so the removed markup
+ * becomes visible, inert text instead of disappearing, with no new
+ * per-renderer code and no weakening of what DOMPurify actually strips.
  */
-function sanitizeHtmlBlocks(blocks: BlockNode[], deps?: ExportDeps): BlockNode[] {
+function sanitizeHtmlBlocks(
+  blocks: BlockNode[],
+  deps: ExportDeps | undefined,
+  warnings: WarningCollector,
+  sourcePath: string,
+): BlockNode[] {
   const sanitize = deps?.sanitizeHtml;
   if (!sanitize) return blocks;
   const walk = (bs: BlockNode[]): BlockNode[] =>
     bs.map((b) => {
-      if (b.type === "htmlBlock") return { ...b, raw: sanitize(b.raw) };
+      if (b.type === "htmlBlock") return sanitizeHtmlBlock(b, sanitize, warnings, sourcePath);
       if (b.type === "blockquote" || b.type === "callout") return { ...b, children: walk(b.children) };
       if (b.type === "list")
         return { ...b, children: b.children.map((it) => ({ ...it, children: walk(it.children) })) };
@@ -241,17 +263,80 @@ function sanitizeHtmlBlocks(blocks: BlockNode[], deps?: ExportDeps): BlockNode[]
   return walk(blocks);
 }
 
-/** Pre-scan a note for warnings without rendering (drives the modal's row). */
+function sanitizeHtmlBlock(
+  block: Extract<BlockNode, { type: "htmlBlock" }>,
+  sanitize: (html: string) => string,
+  warnings: WarningCollector,
+  sourcePath: string,
+): BlockNode {
+  const sanitized = sanitize(block.raw);
+  if (block.raw.trim() !== "" && sanitized.trim() === "") {
+    const reason = `Unsafe HTML was removed for safety and is shown below as plain text, not live markup: ${block.raw}`;
+    warnings.add({ construct: "html", message: reason, line: block.position?.line, sourcePath });
+    return { ...block, type: "unsupported", reason, construct: "html" };
+  }
+  return { ...block, raw: sanitized };
+}
+
+/**
+ * Check every embedded SVG for well-formedness, without rasterising any of
+ * them (§D20). Used by scanNote() as the deliberately cheap half of making
+ * the pre-export preview representative of a corrupt-SVG export: actually
+ * rasterising (rasterizeSvgs in src/docx/index.ts) spins up a real
+ * off-screen Electron BrowserWindow per SVG, which is too expensive to run
+ * from a preview that can fire on every format/template change — but a
+ * "valid SVG markup or not" check is just a regex over the bytes already in
+ * memory, so there's no reason not to run it here too.
+ */
+function checkSvgWellFormedness(
+  blocks: BlockNode[],
+  footnotes: IdmDocument["footnotes"],
+  warnings: WarningCollector,
+  sourcePath: string,
+): void {
+  for (const res of collectResources(blocks, footnotes)) {
+    if (res.kind !== "binary" || !res.data || res.mimeType !== "image/svg+xml") continue;
+    if (isWellFormedSvg(new TextDecoder().decode(res.data))) continue;
+    const name = res.originalPath.slice(res.originalPath.lastIndexOf("/") + 1);
+    warnings.add({
+      construct: "image",
+      message: `Couldn't process the SVG "${name}" — invalid or corrupt content; it will be shown as a placeholder.`,
+      sourcePath,
+    });
+  }
+}
+
+/**
+ * Pre-scan a note for warnings without rendering (drives the modal's row).
+ *
+ * Mermaid diagrams ARE actually rendered here, via the same resolveMermaid()
+ * path the real export uses (deps.mermaidToSvg) — a diagram's parse/render
+ * failure is only knowable by actually trying to render it, so there's no
+ * cheaper way to surface that warning before the user commits to exporting.
+ * This is real DOM work (see createMermaidRenderer in obsidian-adapter.ts)
+ * but not Electron-window-spinning work, and it's the only way to make this
+ * particular warning class visible pre-export at all.
+ *
+ * SVG rasterisation is deliberately NOT run here — see
+ * checkSvgWellFormedness's doc comment above for why a lighter check stands
+ * in for it in this preview path.
+ */
 export async function scanNote(
   adapter: VaultAdapter,
   settings: TrueExportSettings,
   sourcePath: string,
   format: ExportFormat = settings.defaultFormat,
   template: TemplateId = settings.defaultTemplate,
+  deps?: ExportDeps,
 ): Promise<ExportWarning[]> {
   const options = settingsToExportOptions(settings, format, template);
   const warnings = new WarningCollector();
-  await buildDocument(adapter, sourcePath, options, warnings);
+  // buildDocument() must never fetch remote images from a pre-scan (§7.6) —
+  // strip fetchRemoteImage specifically rather than dropping deps entirely,
+  // so mermaidToSvg (passed to resolveMermaid below) is still available.
+  const doc = await buildDocument(adapter, sourcePath, options, warnings, { ...deps, fetchRemoteImage: undefined });
+  const blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
+  checkSvgWellFormedness(blocks, doc.footnotes, warnings, sourcePath);
   return warnings.list();
 }
 
@@ -335,7 +420,7 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
   const warnings = new WarningCollector();
   const doc = await buildDocument(adapter, sourcePath, options, warnings, deps);
   doc.blocks = await resolveMermaid(doc.blocks, deps, warnings, sourcePath);
-  doc.blocks = sanitizeHtmlBlocks(doc.blocks, deps);
+  doc.blocks = sanitizeHtmlBlocks(doc.blocks, deps, warnings, sourcePath);
   const pro = settings.licenceActivated;
 
   // Render fully in memory first; only then write, so a failure never leaves a
@@ -348,14 +433,14 @@ export async function exportNote(params: ExportParams): Promise<ExportResult> {
     bytes = await renderDocx(doc, options, { deps, pro, warnings, referenceStyles });
     binary = true;
   } else if (format === "html") {
-    text = renderHtml(doc, options, { pro });
+    text = renderHtml(doc, options, { pro, warnings, sourcePath });
     binary = false;
   } else if (format === "pdf") {
     // The seam is only provided on desktop, so its absence means mobile (§7.5).
     if (!deps?.htmlToPdf) {
       throw new Error("PDF export is only available on desktop. Use Word or HTML on mobile.");
     }
-    const html = renderHtml(doc, options, { pro });
+    const html = renderHtml(doc, options, { pro, warnings, sourcePath });
     bytes = await renderPdf(
       html,
       {
@@ -461,12 +546,46 @@ export async function exportFolder(params: BatchExportParams): Promise<BatchResu
   return { outputs, warnings, failures, total: notePaths.length, cancelled };
 }
 
+/**
+ * Matches an absolute OS filesystem path (POSIX "/…" or a Windows drive like
+ * "C:\…"/"C:/…"), as returned by the desktop folder-picker dialog (§6.4). Used
+ * to tell an absolute export destination — resolved directly by an fs-backed
+ * VaultWriter rooted at that folder (see src/fs-writer.ts) — apart from a
+ * vault-relative value (the mobile fallback, or a pre-picker stored setting),
+ * which is still confined to the vault below.
+ */
+const ABSOLUTE_OS_PATH = /^(?:[a-zA-Z]:[\\/]|\/)/;
+
+export function isAbsoluteOutputPath(path: string): boolean {
+  return ABSOLUTE_OS_PATH.test(path);
+}
+
+/** Node error codes for a write blocked by filesystem permissions. */
+const PERMISSION_DENIED_CODES = new Set(["EACCES", "EPERM"]);
+
+/**
+ * Turn a raw write failure into an actionable message for the Notice shown on
+ * export failure. Permission-denied errors (e.g. a read-only custom output
+ * folder) get a plain-language explanation instead of a Node error code;
+ * every other error is passed through unchanged.
+ */
+export function friendlyErrorMessage(error: unknown): string {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  if (typeof code === "string" && PERMISSION_DENIED_CODES.has(code)) {
+    return "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function outputFolder(settings: TrueExportSettings, sourcePath: string): string {
   switch (settings.outputLocation) {
     case "vault-root":
       return "";
     case "custom":
-      return confineToVault(settings.customOutputFolder);
+      // An absolute path is resolved entirely by the writer (rooted at that
+      // folder already) — nothing to append. A vault-relative value still
+      // goes through confinement so it can never escape the vault.
+      return isAbsoluteOutputPath(settings.customOutputFolder) ? "" : confineToVault(settings.customOutputFolder);
     default:
       return dirname(sourcePath);
   }

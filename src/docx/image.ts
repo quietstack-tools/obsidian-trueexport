@@ -3,15 +3,171 @@
 // Image helpers for the DOCX renderer: map a MIME type to the `docx` ImageRun
 // type, and read a raster image's intrinsic pixel dimensions from its header
 // (so images without an explicit size can be embedded at a sensible size and
-// capped to the content width). SVG is handled upstream by rasterisation.
+// capped to the content width/height). SVG is handled upstream by
+// rasterisation.
+
+import type { Orientation, PageSize } from "../core/options";
 
 export type DocxImageType = "png" | "jpg" | "gif" | "bmp" | "svg";
 
 /** Content width at default 1" margins on A4/Letter, in px at 96 DPI (6.5"). */
 export const CONTENT_WIDTH_PX = 624;
 
-export function imageType(mimeType: string | undefined): DocxImageType {
-  switch (mimeType) {
+/**
+ * Page dimensions in twips, at 1" margins — the single source of truth for
+ * both the actual page setup (src/docx/index.ts imports this) and the
+ * content-height cap below, so the two can never drift apart.
+ */
+export const PAGE_SIZES_TWIPS: Record<PageSize, { w: number; h: number }> = {
+  A4: { w: 11906, h: 16838 },
+  Letter: { w: 12240, h: 15840 },
+  Legal: { w: 12240, h: 20160 },
+};
+
+const MARGIN_TWIPS = 1440; // 1 inch, matching pageProperties() in index.ts.
+const TWIPS_PER_PX = 15; // 1440 twips/in ÷ 96 px/in.
+
+/** Usable page height in px at 96 DPI, after margins — the height ceiling for an unresized image. */
+export function contentHeightPx(pageSize: PageSize, orientation: Orientation): number {
+  const size = PAGE_SIZES_TWIPS[pageSize] ?? PAGE_SIZES_TWIPS.A4;
+  const heightTwips = orientation === "landscape" ? size.w : size.h;
+  return Math.round((heightTwips - MARGIN_TWIPS * 2) / TWIPS_PER_PX);
+}
+
+/**
+ * Usable page width in twips, after margins — the single source of truth
+ * for `w:tblGrid`/`w:gridCol` on every single- and multi-column table in
+ * the DOCX renderer (§9.3). `docx`'s `Table` defaults `columnWidths` to 100
+ * twips (~0.07in) per column when not given explicitly; Word treats that as
+ * a soft hint and defers to `w:tblW: 100%`, but Apple Pages was confirmed
+ * (manual test) to size EVERY table type literally from gridCol regardless
+ * of the percentage width — callouts, code blocks, the frontmatter
+ * properties table, and ordinary markdown tables all rendered as
+ * narrow, character-wrapped columns until each was given explicit,
+ * correctly-computed columnWidths (thematicBreak was fixed first, in an
+ * earlier round; this is the same fix applied everywhere else).
+ */
+export function contentWidthTwips(pageSize: PageSize, orientation: Orientation): number {
+  const size = PAGE_SIZES_TWIPS[pageSize] ?? PAGE_SIZES_TWIPS.A4;
+  const widthTwips = orientation === "landscape" ? size.h : size.w;
+  return widthTwips - MARGIN_TWIPS * 2;
+}
+
+/**
+ * Sniff the raster format from the file's own magic-byte signature, ignoring
+ * whatever MIME type string it arrived labelled with (§D25).
+ *
+ * A declared MIME type isn't trustworthy enough to key sizing/embedding on:
+ * a local file's mimeType is a guess from its extension
+ * (VaultAdapter.getMimeType), and a remote-fetched image's mimeType is
+ * whatever Content-Type header the server happened to send, which real
+ * hosts and CDNs sometimes give as a real-but-non-canonical string —
+ * `image/x-png` (a legacy alias, still genuinely a PNG), a stray
+ * charset/vendor suffix, etc. `imageDimensions`/`imageType` previously
+ * matched the declared string EXACTLY against `"image/png"` et al.: a
+ * non-canonical-but-valid header silently failed that match, so a real,
+ * perfectly readable image's dimensions were never read, and the renderer
+ * fell back to its generic 400×300 default — producing a genuinely
+ * distorted aspect ratio for an image that was never actually broken.
+ * Confirmed exactly reproducing a real-world report this way (a remote PNG
+ * served as `image/x-png`; `imageType` separately defaulting to `"png"`
+ * regardless is why the image still embedded and displayed, just squashed).
+ * The declared mimeType is still consulted as a fallback when the bytes
+ * don't match any of the four signatures this renderer supports (e.g. truly
+ * malformed/too-short data), so nothing regresses for that case.
+ */
+export function sniffImageFormat(data: ArrayBuffer): "image/png" | "image/jpeg" | "image/gif" | "image/bmp" | null {
+  const view = new DataView(data);
+  if (data.byteLength >= 8 && view.getUint32(0) === 0x89504e47 && view.getUint32(4) === 0x0d0a1a0a) {
+    return "image/png";
+  }
+  if (data.byteLength >= 3 && view.getUint8(0) === 0xff && view.getUint8(1) === 0xd8 && view.getUint8(2) === 0xff) {
+    return "image/jpeg";
+  }
+  if (data.byteLength >= 6 && view.getUint32(0) === 0x47494638 /* "GIF8" */) {
+    return "image/gif";
+  }
+  if (data.byteLength >= 2 && view.getUint8(0) === 0x42 && view.getUint8(1) === 0x4d /* "BM" */) {
+    return "image/bmp";
+  }
+  return null;
+}
+
+/** The declared or sniffed format, sniffed bytes taking priority (§D25). */
+function effectiveMimeType(data: ArrayBuffer, declared: string | undefined): string | undefined {
+  return sniffImageFormat(data) ?? declared;
+}
+
+export type AnyImageFormat = "image/png" | "image/jpeg" | "image/gif" | "image/bmp" | "image/avif" | "image/webp";
+
+/**
+ * Sniff ANY recognisable raster format, including ones this renderer can't
+ * natively embed in a DOCX (§D25) — AVIF and WebP, both increasingly common
+ * as the DEFAULT format modern sites/CDNs serve (confirmed via a real-world
+ * report: a photo served as AVIF, byte signature `ftyp....avif`).
+ * `sniffImageFormat` above stays scoped to the four natively-embeddable
+ * types (used for sizing/embedding decisions); this superset exists
+ * separately so callers deciding whether an image needs transcoding, or
+ * what to call it in a warning, can name the ACTUAL format even when it
+ * isn't one Word can display. Byte-signature based, not extension/declared-
+ * mimeType based, for the same reason `sniffImageFormat` is (§D25).
+ */
+export function sniffAnyImageFormat(data: ArrayBuffer): AnyImageFormat | null {
+  const embeddable = sniffImageFormat(data);
+  if (embeddable) return embeddable;
+  const view = new DataView(data);
+  // AVIF/AVIS: an ISOBMFF ("MP4-family") box — 4-byte big-endian box size,
+  // then ASCII "ftyp", then a 4-byte major brand. "avif" = a still image,
+  // "avis" = an image sequence; both are the AVIF codec.
+  if (data.byteLength >= 12 && view.getUint32(4) === 0x66747970 /* "ftyp" */) {
+    const brand = view.getUint32(8);
+    if (brand === 0x61766966 /* "avif" */ || brand === 0x61766973 /* "avis" */) return "image/avif";
+  }
+  // WebP: a RIFF container — "RIFF", 4-byte little-endian chunk size, "WEBP".
+  if (
+    data.byteLength >= 12 &&
+    view.getUint32(0) === 0x52494646 /* "RIFF" */ &&
+    view.getUint32(8) === 0x57454250 /* "WEBP" */
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
+function isEmbeddableFormatString(format: string | undefined): boolean {
+  return format === "image/png" || format === "image/jpeg" || format === "image/gif" || format === "image/bmp";
+}
+
+/**
+ * Is this resource one of the four raster types Word can natively decode
+ * and embed (§D25)? False for AVIF/WebP/anything else unrecognised, which
+ * the DOCX renderer must either transcode to PNG first or degrade to a
+ * placeholder — embedding the raw bytes as-is would hand Word/Pages data
+ * they can't necessarily open, declared as a format they aren't.
+ *
+ * Uses the BROAD sniffer (`sniffAnyImageFormat`), not just the narrow one —
+ * critically, when the bytes are positively identified as AVIF/WebP, that
+ * verdict is final regardless of what mimeType was declared: a real AVIF
+ * file mislabelled "image/png" (whether by a wrong extension locally, or a
+ * misleading server header remotely) must NOT be judged embeddable just
+ * because the label says so. The declared mimeType is trusted only when
+ * sniffing is genuinely inconclusive (too little/corrupt data to identify
+ * ANY format) — same fallback rationale as `sniffImageFormat`'s doc comment.
+ */
+export function isEmbeddableRasterFormat(data: ArrayBuffer, declaredMimeType: string | undefined): boolean {
+  const sniffed = sniffAnyImageFormat(data);
+  if (sniffed) return isEmbeddableFormatString(sniffed);
+  return isEmbeddableFormatString(declaredMimeType);
+}
+
+/** A short, human-friendly name for a warning/placeholder message (§D25). */
+export function imageFormatLabel(format: string): string {
+  const known: Partial<Record<AnyImageFormat, string>> = { "image/avif": "AVIF", "image/webp": "WebP" };
+  return known[format as AnyImageFormat] ?? format;
+}
+
+export function imageType(data: ArrayBuffer, declaredMimeType: string | undefined): DocxImageType {
+  switch (effectiveMimeType(data, declaredMimeType)) {
     case "image/png":
       return "png";
     case "image/jpeg":
@@ -33,8 +189,9 @@ export interface Dimensions {
 }
 
 /** Read intrinsic pixel dimensions from a raster image header, or null. */
-export function imageDimensions(data: ArrayBuffer, mimeType: string | undefined): Dimensions | null {
+export function imageDimensions(data: ArrayBuffer, declaredMimeType: string | undefined): Dimensions | null {
   const view = new DataView(data);
+  const mimeType = effectiveMimeType(data, declaredMimeType);
   try {
     if (mimeType === "image/png") return pngSize(view);
     if (mimeType === "image/gif") return gifSize(view);
@@ -85,14 +242,35 @@ function jpegSize(view: DataView): Dimensions | null {
   return null;
 }
 
-/** Final display size in px, honouring explicit sizes and the content cap. */
+/**
+ * Final display size in px, honouring explicit sizes and the content caps.
+ *
+ * `maxHeightPx` (the page's usable height after margins) only constrains the
+ * fully-automatic case — no `|width` and no explicit height in the source.
+ * An explicit `|width` (or `|widthxheight`) resize is a deliberate user
+ * choice and is left alone even if the result is tall relative to remaining
+ * page space: the bug this fixes is that a normal, UNRESIZED image could
+ * overflow a page with no way for the user to know why, which doesn't apply
+ * once they've already picked a size themselves. Word also still paginates
+ * a too-tall image across a page break rather than clipping it, unlike the
+ * unresized case's silent bottom cut-off, so an explicit resize overflowing
+ * is recoverable in a way the original bug wasn't.
+ */
 export function displaySize(
   data: ArrayBuffer,
   mimeType: string | undefined,
   width?: number,
   height?: number,
+  maxHeightPx?: number,
+  intended?: Dimensions,
 ): Dimensions {
-  const intrinsic = imageDimensions(data, mimeType);
+  // `intended` (the pre-scale size a rasteriser reports — see
+  // MediaResource.intendedWidth/Height) stands in for the "natural" size a
+  // caller would otherwise read from the raw pixel header. A 2x-oversampled
+  // rasterised image's own PNG header reports pixel dimensions twice its
+  // intended DISPLAY size; using those directly here would make the image
+  // display at roughly double its intended physical size.
+  const intrinsic = intended ?? imageDimensions(data, mimeType);
 
   if (width !== undefined && height !== undefined) return { width, height };
   if (width !== undefined) {
@@ -100,11 +278,14 @@ export function displaySize(
     return { width, height: Math.round(width * ratio) };
   }
   if (intrinsic) {
-    if (intrinsic.width > CONTENT_WIDTH_PX) {
-      const ratio = intrinsic.height / intrinsic.width;
-      return { width: CONTENT_WIDTH_PX, height: Math.round(CONTENT_WIDTH_PX * ratio) };
+    const ratio = intrinsic.height / intrinsic.width;
+    let w = intrinsic.width > CONTENT_WIDTH_PX ? CONTENT_WIDTH_PX : intrinsic.width;
+    let h = Math.round(w * ratio);
+    if (maxHeightPx !== undefined && h > maxHeightPx) {
+      h = maxHeightPx;
+      w = Math.round(h / ratio);
     }
-    return intrinsic;
+    return { width: w, height: h };
   }
   return { width: 400, height: 300 };
 }

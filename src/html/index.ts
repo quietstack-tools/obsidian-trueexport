@@ -24,6 +24,9 @@ import type {
 import type { ExportOptions } from "../core/options";
 import { parseLatex } from "../math/parse";
 import { safeExternalUrl } from "../core/util/url";
+import { isWellFormedSvg } from "../core/util/svg";
+import { tokenizeLine } from "../core/highlight";
+import type { WarningCollector } from "../core/warnings";
 import { mathmlDocument } from "./math";
 import { buildCss } from "./css";
 import { sanitizeRawHtml } from "./sanitize";
@@ -33,6 +36,15 @@ export interface HtmlRenderOptions {
   pro?: boolean;
   /** Document language for <html lang>. Defaults to "en". */
   lang?: string;
+  /**
+   * Collector for degradation warnings raised during rendering — currently a
+   * corrupt/invalid embedded SVG (§D20), mirroring the DOCX renderer's
+   * rasterisation-failure warning. Optional so pure-render tests/callers that
+   * don't need warnings can omit it.
+   */
+  warnings?: WarningCollector;
+  /** Source note path, attached to any warning raised here. */
+  sourcePath?: string;
 }
 
 const ATTRIBUTION = "TrueExport — quietstack.tools";
@@ -48,7 +60,28 @@ const CSP = [
   "form-action 'none'",
 ].join("; ");
 
+// Module-scoped, set for the duration of a single (fully synchronous)
+// renderHtml() call so the many block/inline render helpers below don't all
+// need a context parameter threaded through them — mirrors the DOCX
+// renderer's RenderContext, just passed differently since this renderer's
+// call tree is plain recursive functions rather than one that carries a
+// context object. Safe because renderHtml() never yields to the event loop
+// mid-call, so no two renders can interleave.
+let currentWarnings: WarningCollector | undefined;
+let currentSourcePath: string | undefined;
+
 export function renderHtml(doc: IdmDocument, options: ExportOptions, render: HtmlRenderOptions = {}): string {
+  currentWarnings = render.warnings;
+  currentSourcePath = render.sourcePath;
+  try {
+    return renderDocument(doc, options, render);
+  } finally {
+    currentWarnings = undefined;
+    currentSourcePath = undefined;
+  }
+}
+
+function renderDocument(doc: IdmDocument, options: ExportOptions, render: HtmlRenderOptions): string {
   const lang = render.lang ?? "en";
   const body: string[] = [];
 
@@ -69,7 +102,7 @@ export function renderHtml(doc: IdmDocument, options: ExportOptions, render: Htm
     `<title>${escapeHtml(doc.title)}</title>`,
     ...metaTags(doc, options),
     render.pro ? "" : `<meta name="generator" content="${ATTRIBUTION}">`,
-    `<style>\n${buildCss()}\n</style>`,
+    `<style>\n${buildCss(options.template)}\n</style>`,
   ].filter((line) => line !== "");
 
   return `<!DOCTYPE html>
@@ -129,12 +162,19 @@ function renderBlock(block: BlockNode): string {
   switch (block.type) {
     case "heading": {
       const id = block.id ? ` id="${escapeAttr(block.id)}"` : "";
+      // "embedded" (§4.3): a left border marking transcluded content,
+      // distinct from callout/blockquote styling — matching the DOCX
+      // renderer's left-border treatment for the same blocks (added
+      // earlier to DOCX only; PDF/HTML share this renderer, so needed here
+      // too for parity).
+      const cls = block.embedded ? ` class="embedded"` : "";
       // dir="auto" lets the browser's bidi algorithm handle RTL text (§4.1).
-      return `<h${block.level}${id} dir="auto">${renderInline(block.children)}</h${block.level}>`;
+      return `<h${block.level}${id}${cls} dir="auto">${renderInline(block.children)}</h${block.level}>`;
     }
     case "paragraph": {
       const id = block.blockId ? ` id="${escapeAttr(block.blockId)}"` : "";
-      return `<p${id} dir="auto">${renderInline(block.children)}</p>`;
+      const cls = block.embedded ? ` class="embedded"` : "";
+      return `<p${id}${cls} dir="auto">${renderInline(block.children)}</p>`;
     }
     case "list":
       return renderList(block);
@@ -146,7 +186,10 @@ function renderBlock(block: BlockNode): string {
       return `<blockquote>\n${renderBlocks(block.children)}\n</blockquote>`;
     case "codeBlock": {
       const cls = block.language ? ` class="language-${escapeAttr(block.language)}"` : "";
-      return `<pre><code${cls}>${escapeHtml(block.content)}</code></pre>`;
+      // A plain-text language label, top-right — matching Obsidian's own
+      // editor — only when the fence declares one (§4.8).
+      const label = block.language ? `<div class="code-lang">${escapeHtml(block.language)}</div>` : "";
+      return `<pre>${label}<code${cls}>${renderCodeBody(block.content, block.language)}</code></pre>`;
     }
     case "thematicBreak":
       return "<hr>";
@@ -248,7 +291,7 @@ function renderMath(latex: string, block: boolean): string {
 function renderInlineNode(node: InlineNode): string {
   switch (node.type) {
     case "text":
-      return escapeHtml(node.value);
+      return wrapCjk(escapeHtml(node.value));
     case "emphasis":
       return `<em>${renderInline(node.children)}</em>`;
     case "strong":
@@ -271,7 +314,14 @@ function renderInlineNode(node: InlineNode): string {
       if (node.assignedNumber === undefined) return "";
       return `<sup class="footnote-ref" id="fnref-${node.assignedNumber}"><a href="#fn-${node.assignedNumber}">${node.assignedNumber}</a></sup>`;
     case "lineBreak":
-      return node.hard ? "<br>\n" : "\n";
+      // Obsidian's default (non-strict-line-breaks) editor treats a plain
+      // newline within a paragraph as a real visual line break, same as an
+      // explicit hard break — a raw "\n" in HTML source collapses to
+      // whitespace when rendered, so both cases need <br> here (same root
+      // cause and fix as the DOCX renderer's w:br handling). The IDM's
+      // `hard` flag is left as-is for any consumer that wants the strict-
+      // CommonMark distinction.
+      return "<br>\n";
     case "mathInline":
       return renderMath(node.latex, false);
     default:
@@ -338,15 +388,45 @@ function renderFrontmatterTable(frontmatter: Record<string, unknown>): string {
 
 // ---- Media / helpers ----
 
+function svgFileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * A corrupt/invalid embedded SVG (e.g. a plain text file renamed to .svg)
+ * must degrade to a placeholder + warning here too, not just in the DOCX
+ * renderer's rasterisation step (§D20) — unlike DOCX, HTML/PDF embed SVGs
+ * directly rather than rasterising them, so this is the only place in this
+ * renderer that ever looks at the SVG's actual content.
+ */
+function isCorruptSvg(resource: MediaResource): boolean {
+  if (resource.kind !== "binary" || !resource.data) return false;
+  if (resource.mimeType !== "image/svg+xml") return false;
+  return !isWellFormedSvg(new TextDecoder().decode(resource.data));
+}
+
+function warnCorruptSvg(resource: MediaResource): void {
+  currentWarnings?.add({
+    construct: "image",
+    message: `Couldn't process the SVG "${svgFileName(resource.originalPath)}" — invalid or corrupt content; shown as a placeholder.`,
+    sourcePath: currentSourcePath ?? "",
+  });
+}
+
 function dataUri(resource: MediaResource): string | null {
   if (resource.kind !== "binary" || !resource.data) return null;
+  if (isCorruptSvg(resource)) {
+    warnCorruptSvg(resource);
+    return null;
+  }
   const mime = resource.mimeType ?? "application/octet-stream";
   return `data:${mime};base64,${toBase64(resource.data)}`;
 }
 
 function placeholder(resource: MediaResource): string {
-  const name = resource.originalPath.slice(resource.originalPath.lastIndexOf("/") + 1);
+  const name = svgFileName(resource.originalPath);
   if (resource.kind === "remote-blocked") return `[Remote image not embedded: ${name}]`;
+  if (isCorruptSvg(resource)) return `[SVG image: ${name}]`;
   return `[Image not found: ${name}]`;
 }
 
@@ -381,4 +461,36 @@ function escapeHtml(text: string): string {
 
 function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+// CJK (Han/Hiragana/Katakana/Hangul) runs, wrapped in an explicit lang="zh".
+// Workaround for a longstanding, unresolved Electron/Chromium bug where
+// webContents.printToPDF() silently drops CJK glyphs that render fine
+// on-screen (electron/electron#23344) — apparently the print pipeline's
+// script/font-fallback detection doesn't run the same way plain on-screen
+// rendering does, but respects an explicit lang attribute. Runs on
+// already-HTML-escaped text, which is safe: none of these scripts contain
+// &, <, > or ".
+const CJK_RUN = /([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+)/gu;
+
+function wrapCjk(escaped: string): string {
+  return escaped.replace(CJK_RUN, '<span lang="zh">$1</span>');
+}
+
+/**
+ * Syntax-highlighted (or plain, for an unset/unsupported language) code
+ * body. tokenizeLine() returns null for anything outside the supported
+ * subset (§4.8) — that line is escaped as plain text, same output as before
+ * this feature existed. Otherwise each token becomes its own
+ * `<span class="tok-{type}">`, styled in css.ts.
+ */
+function renderCodeBody(content: string, language: string | null): string {
+  const lines = content.length > 0 ? content.split("\n") : [""];
+  return lines
+    .map((line) => {
+      const tokens = tokenizeLine(line, language);
+      if (!tokens) return escapeHtml(line);
+      return tokens.map((t) => `<span class="tok-${t.type}">${escapeHtml(t.text)}</span>`).join("");
+    })
+    .join("\n");
 }

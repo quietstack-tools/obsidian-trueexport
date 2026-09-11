@@ -44,6 +44,11 @@ const SYMBOLS: Record<string, string> = {
   exists: "∃", langle: "⟨", rangle: "⟩", star: "⋆", ast: "∗", circ: "∘",
 };
 
+// \, \; \! and a literal escaped space — LaTeX's punctuation-named spacing
+// commands. \! (negative thin space) has no plain-text equivalent, so it
+// contributes an empty run rather than erroring or rendering a stray space.
+const PUNCT_SPACING: Record<string, string> = { ",": " ", ";": " ", "!": "", " ": " " };
+
 const FUNCTIONS = new Set([
   "sin", "cos", "tan", "cot", "sec", "csc", "log", "ln", "exp",
   "lim", "max", "min", "det", "gcd", "sinh", "cosh", "tanh", "arg",
@@ -164,9 +169,26 @@ class Parser {
 
   private parseCommand(): MathNode {
     this.next(); // backslash
+    // Spacing commands named by a single punctuation character (or a
+    // literal escaped space), not letters — LaTeX's thin/thick/negative-
+    // thin space. Checked before the letter-accumulation loop below since
+    // these have no letter name at all, so that loop would see an empty
+    // name and throw "Unsupported escape" (the actual root cause of a
+    // \frac{d}{dx}\left(\int_0^x f(u)\,du\right)=f(x)-style equation
+    // falling back to plain text: the \, alone made the whole equation
+    // unparseable, even though every other construct in it — \frac,
+    // \left…\right, \int with sub/superscript bounds — already worked).
+    const punctSpacing = PUNCT_SPACING[this.peek() ?? ""];
+    if (punctSpacing !== undefined) {
+      this.next();
+      return { type: "op", value: punctSpacing };
+    }
+
     let name = "";
     while (this.peek() !== undefined && /[a-zA-Z]/.test(this.peek() as string)) name += this.next();
     if (name === "") throw new MathUnsupportedError("Unsupported escape");
+    if (name === "quad") return { type: "op", value: " " };
+    if (name === "qquad") return { type: "op", value: "  " };
 
     if (name === "frac") {
       const num = this.parseGroup();

@@ -62,6 +62,83 @@ export class WarningsModal extends Modal {
   }
 }
 
+/**
+ * Plain-text summary for a BATCH export's warnings, grouped by source file —
+ * unlike a single-note export, "10 warning(s)" alone doesn't tell you which
+ * of N files they're in, so the file path each group is under is the whole
+ * point here (a single-note export already knows its one file from the modal
+ * title, so formatWarnings() above doesn't repeat it per line).
+ */
+export function formatBatchWarnings(folderName: string, warnings: ExportWarning[]): string {
+  const lines = [`Folder export: ${folderName}`, "", `${warnings.length} item(s) need attention:`];
+  for (const [path, group] of groupBySourcePath(warnings)) {
+    lines.push("", path);
+    for (const w of group) {
+      const where = w.line !== undefined ? ` (line ${w.line})` : "";
+      lines.push(`• [${w.construct}]${where} ${w.message}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function groupBySourcePath(warnings: ExportWarning[]): [string, ExportWarning[]][] {
+  const groups = new Map<string, ExportWarning[]>();
+  for (const w of warnings) {
+    const group = groups.get(w.sourcePath);
+    if (group) group.push(w);
+    else groups.set(w.sourcePath, [w]);
+  }
+  return [...groups];
+}
+
+/** Per-file warning breakdown for a batch export — same actions as WarningsModal. */
+export class BatchWarningsModal extends Modal {
+  constructor(
+    app: App,
+    private readonly folderName: string,
+    private readonly warnings: ExportWarning[],
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("trueexport-warnings");
+
+    contentEl.createEl("h3", { text: `Folder export: ${this.folderName}` });
+    contentEl.createEl("p", {
+      cls: "trueexport-warnings-count",
+      text: `⚠ ${this.warnings.length} item${this.warnings.length === 1 ? "" : "s"} need attention`,
+    });
+
+    for (const [path, group] of groupBySourcePath(this.warnings)) {
+      contentEl.createEl("h4", { text: path });
+      const list = contentEl.createEl("ul", { cls: "trueexport-warnings-list" });
+      for (const w of group) {
+        const item = list.createEl("li");
+        const where = w.line !== undefined ? ` (line ${w.line})` : "";
+        item.createEl("strong", { text: `${w.construct}${where}: ` });
+        item.createSpan({ text: w.message });
+      }
+    }
+
+    new Setting(contentEl)
+      .addButton((b) =>
+        b.setButtonText("Copy details").onClick(() => {
+          const text = formatBatchWarnings(this.folderName, this.warnings);
+          void copyToClipboard(text);
+          new Notice("Warning details copied");
+        }),
+      )
+      .addButton((b) => b.setButtonText("Dismiss").setCta().onClick(() => this.close()));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 async function copyToClipboard(text: string): Promise<void> {
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard) {

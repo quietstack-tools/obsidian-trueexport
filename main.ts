@@ -8,12 +8,14 @@
 import { Notice, Plugin, Platform, TFile, TFolder, type Menu } from "obsidian";
 import {
   ObsidianVaultAdapter,
-  createSvgRasterizer,
   createMermaidRenderer,
   createRemoteImageFetcher,
   createHtmlSanitizer,
 } from "./src/obsidian-adapter";
 import { createElectronHtmlToPdf } from "./src/pdf/electron";
+import { createElectronSvgRasterizer } from "./src/svg-rasterizer-electron";
+import { createElectronImageRasterizer } from "./src/image-rasterizer-electron";
+import { createFsWriter } from "./src/fs-writer";
 import type { VaultAdapter } from "./src/core/adapter";
 import type { ExportFormat, TemplateId } from "./src/core/options";
 import type { ExportWarning } from "./src/core/warnings";
@@ -22,6 +24,8 @@ import {
   exportFolder,
   scanNote,
   basename,
+  isAbsoluteOutputPath,
+  friendlyErrorMessage,
   type BatchResult,
   type ExportDeps,
   type VaultWriter,
@@ -35,6 +39,7 @@ import { ExportModal, type ExportModalHost, type ExportSource } from "./src/ui/e
 import { BatchModal, type BatchModalHost } from "./src/ui/batch-modal";
 import { TrueExportSettingTab } from "./src/ui/settings-tab";
 import { WarningsModal } from "./src/ui/warnings-view";
+import { ProRequiredModal } from "./src/ui/pro-required-modal";
 
 const PRO_URL = "https://quietstack.tools/trueexport";
 
@@ -43,13 +48,13 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   licence!: LicenceManager;
   private adapter!: VaultAdapter;
   private deps!: ExportDeps;
+  private ribbonIconEl: HTMLElement | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.licence = new LicenceManager(this);
     this.adapter = new ObsidianVaultAdapter(this.app);
     this.deps = {
-      rasterizeSvg: createSvgRasterizer(),
       mermaidToSvg: createMermaidRenderer(this.app),
       // The remote-image fetch capability. It only ever runs when the user has
       // enabled the default-off "Allow remote images" setting (§7.6).
@@ -57,8 +62,23 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       // DOM-based sanitiser for raw HTML blocks (defence-in-depth over the
       // renderer's regex baseline and the document CSP).
       sanitizeHtml: createHtmlSanitizer(),
-      // PDF is desktop-only: only wire the Electron seam there (§7.5).
-      ...(Platform.isDesktop ? { htmlToPdf: createElectronHtmlToPdf() } : {}),
+      // PDF and SVG rasterisation are both desktop-only: they need Electron's
+      // BrowserWindow (§7.5). Canvas-based rasterisation (drawImage +
+      // getImageData/toBlob) was tried first and rejected — it throws a
+      // "tainted canvas" SecurityError for any SVG containing <foreignObject>
+      // HTML content, which is how Mermaid renders diagram labels by
+      // default, so every real Mermaid diagram hit it. The Electron seam
+      // captures a real off-screen page render instead, which has no such
+      // restriction — see src/svg-rasterizer-electron.ts.
+      // Image transcoding (AVIF/WebP → PNG, §D25) is the same desktop-only
+      // Electron-capture pattern — see src/image-rasterizer-electron.ts.
+      ...(Platform.isDesktop
+        ? {
+            htmlToPdf: createElectronHtmlToPdf(),
+            rasterizeSvg: createElectronSvgRasterizer(),
+            rasterizeImage: createElectronImageRasterizer(),
+          }
+        : {}),
     };
 
     this.addCommand({
@@ -118,13 +138,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       }),
     );
 
-    if (this.settings.showRibbonIcon) {
-      this.addRibbonIcon("file-output", "Export with TrueExport", () => {
-        const file = this.activeMarkdownFile();
-        if (file) this.openExportModal(file);
-        else new Notice("Open a note to export it.");
-      });
-    }
+    this.updateRibbonIcon();
 
     this.addSettingTab(new TrueExportSettingTab(this.app, this));
   }
@@ -145,7 +159,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   }
 
   async scan(sourcePath: string, format: ExportFormat, template: TemplateId): Promise<ExportWarning[]> {
-    return scanNote(this.adapter, this.settings, sourcePath, format, template);
+    return scanNote(this.adapter, this.settings, sourcePath, format, template, this.deps);
   }
 
   async runExport(sourcePath: string, format: ExportFormat, template: TemplateId): Promise<void> {
@@ -165,7 +179,7 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       }
     } catch (error) {
       console.error("[TrueExport]", error);
-      new Notice(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
+      new Notice(`Export failed: ${friendlyErrorMessage(error)}`);
     }
   }
 
@@ -187,6 +201,28 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
       onProgress,
       signal,
     });
+  }
+
+  /**
+   * Adds or removes the ribbon icon to match the current "Show ribbon icon"
+   * setting — called on load and again from the settings tab whenever the
+   * toggle changes, so it takes effect immediately without an Obsidian
+   * restart. Obsidian has no removeRibbonIcon(); the documented pattern is
+   * calling .remove() on the element addRibbonIcon() returned.
+   */
+  updateRibbonIcon(): void {
+    if (this.settings.showRibbonIcon) {
+      if (!this.ribbonIconEl) {
+        this.ribbonIconEl = this.addRibbonIcon("file-output", "Export with TrueExport", () => {
+          const file = this.activeMarkdownFile();
+          if (file) this.openExportModal(file);
+          else new Notice("Open a note to export it.");
+        });
+      }
+    } else if (this.ribbonIconEl) {
+      this.ribbonIconEl.remove();
+      this.ribbonIconEl = null;
+    }
   }
 
   // ---- helpers ----
@@ -222,10 +258,15 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
   }
 
   private requireProNotice(feature: string): void {
-    new Notice(`${feature} requires TrueExport Pro. Learn more at ${PRO_URL}`);
+    new ProRequiredModal(this.app, feature, PRO_URL).open();
   }
 
-  private writer(): VaultWriter {
+  /**
+   * The vault-backed writer, used for every export except one. Never swap
+   * this out anywhere but `writer()` below — it's the only place the
+   * fs-backed exception (custom desktop destination) is decided.
+   */
+  private vaultWriter(): VaultWriter {
     const vault = this.app.vault;
     return {
       exists: (path) => vault.getAbstractFileByPath(path) !== null,
@@ -244,6 +285,26 @@ export default class TrueExportPlugin extends Plugin implements ExportModalHost,
         }
       },
     };
+  }
+
+  /**
+   * The one documented exception to "never write outside the vault"
+   * (CLAUDE.md): a custom export destination the user picked via the native
+   * OS folder dialog (desktop only — settings-tab.ts never lets mobile store
+   * an absolute path). Falls back to the vault-backed writer only when the
+   * stored value isn't even a real absolute path (e.g. mobile, or an empty
+   * setting). If the folder itself no longer exists — moved, deleted, an
+   * unmounted external drive — we do NOT silently reroute the export into
+   * the vault (§D20): createFsWriter recreates the missing directory at
+   * write time, and a genuine failure to do so surfaces as an honest error
+   * instead of a false "exported" success somewhere the user isn't looking.
+   */
+  private writer(): VaultWriter {
+    const { outputLocation, customOutputFolder } = this.settings;
+    if (Platform.isDesktop && outputLocation === "custom" && isAbsoluteOutputPath(customOutputFolder)) {
+      return createFsWriter(customOutputFolder);
+    }
+    return this.vaultWriter();
   }
 
   async loadSettings(): Promise<void> {

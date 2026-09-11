@@ -160,6 +160,21 @@ interface StyleIndex {
  * a monotonically increasing position), so this is O(n) — replacing the old
  * per-category scan-to-close regexes that were O(n²) on malformed input with
  * many unclosed tags. Built once and reused for all style categories.
+ *
+ * Duplicate w:styleId (or duplicate display name): LAST one in the document
+ * wins, not the first. A well-formed reference .docx from real Word/
+ * LibreOffice never has duplicates — styleId is meant to be unique — so this
+ * only matters for a malformed/programmatically-generated reference file.
+ * Confirmed via a real investigation (D24, this session): a reference .docx
+ * built with the `docx` npm library emitted TWO <w:style w:styleId="Heading1">
+ * blocks — its own auto-generated library default first, then the author's
+ * actual intended custom style second (a documented `docx` library quirk when
+ * mixing its default-headingN mechanism with an explicit paragraphStyles
+ * entry for the same id) — and first-wins silently picked the wrong one.
+ * Last-wins matches the common real-world authoring pattern behind that kind
+ * of duplicate (a boilerplate/default emitted first, a correction/override
+ * appended after) and costs nothing in the well-formed case, where there's
+ * only ever one match anyway.
  */
 function indexStyleBlocks(xml: string): StyleIndex {
   const byId = new Map<string, string>();
@@ -188,15 +203,9 @@ function indexStyleBlocks(xml: string): StyleIndex {
     const inner = xml.slice(gt + 1, close);
 
     const styleId = tagAttrRaw(openTag, "w:styleId");
-    if (styleId) {
-      const key = styleId.toLowerCase();
-      if (!byId.has(key)) byId.set(key, inner);
-    }
+    if (styleId) byId.set(styleId.toLowerCase(), inner); // last-wins: always overwrite
     const name = /<w:name\b[^>]*\bw:val="([^"]*)"/i.exec(inner)?.[1];
-    if (name) {
-      const key = name.toLowerCase();
-      if (!byName.has(key)) byName.set(key, inner);
-    }
+    if (name) byName.set(name.toLowerCase(), inner); // last-wins: always overwrite
     cursor = close + CLOSE.length;
   }
   return { byId, byName };
@@ -329,7 +338,7 @@ function toStyle(run: RefRunProps | undefined, paragraph: RefParaProps | undefin
 }
 
 /** Merge two RefStyles field-by-field; `over` wins where it defines a value. */
-function mergeStyles(base: RefStyle | undefined, over: RefStyle | undefined): RefStyle | undefined {
+export function mergeStyles(base: RefStyle | undefined, over: RefStyle | undefined): RefStyle | undefined {
   if (!base) return over;
   if (!over) return base;
   const run = { ...base.run, ...over.run };

@@ -192,72 +192,136 @@ export function createHtmlSanitizer(): (html: string) => string {
 }
 
 /**
- * Rasterise an SVG to PNG using a canvas (§4.9). Word's SVG support is
- * unreliable, so DOCX embeds a raster copy. This can only exist in the Obsidian
- * environment (needs DOM/canvas), which is why it is injected into renderDocx
- * rather than living in pure core.
+ * Render a Mermaid diagram to SVG using Obsidian's own Mermaid instance (§4.11),
+ * by rendering a fenced mermaid block via MarkdownRenderer and extracting the
+ * SVG. Version-dependent and DOM-based → a manual-verification seam; failure is
+ * contained (the export layer degrades to a code block + warning).
+ *
+ * Obsidian's mermaid post-processing does not always finish inside the
+ * `MarkdownRenderer.render()` promise — mermaid.js renders on its own
+ * microtask/rAF schedule. Three follow-up findings from manual testing, in
+ * order:
+ *
+ * 1. An early fix polled for "the svg has child elements" — not specific
+ *    enough. Direct inspection of the actual embedded PNG showed a generic
+ *    broken-image glyph (two overlapping rounded squares — an icon, not a
+ *    flowchart), 48×48px, structurally valid as a PNG: consistent with
+ *    capturing an SVG-based UI icon shown as a placeholder while mermaid
+ *    was still initialising, which has real `<path>` children (satisfying
+ *    the old check) but isn't mermaid's own output.
+ * 2. Fix: `isMermaidDiagramSvg()` positively identifies real mermaid output
+ *    (a mermaid-specific marker AND real content) instead of "has
+ *    children". Still failed a re-test with a REAL captured diagram.
+ * 3. Ground truth from a live-captured mermaid flowchart svg (Obsidian dev
+ *    tools): id `m<hash>`, class `flowchart` — neither contains the
+ *    literal substring "mermaid" anywhere (only inside unrelated <style>
+ *    CSS variable names). But it DOES carry the node/edge/cluster/label
+ *    descendant classes `isMermaidDiagramSvg()` already checked for. What
+ *    it does NOT have is native SVG `<text>`/`<tspan>` elements — labels
+ *    are HTML `<p>` inside `<foreignObject>` (mermaid.js's default label
+ *    rendering strategy since v9), which the original text-content check
+ *    didn't look for at all. `isMermaidDiagramSvg()` now checks
+ *    `textContent` instead of `querySelector("text, tspan")`, which covers
+ *    both rendering strategies. Also stopped assuming
+ *    `el.querySelector("svg")` (first match) lands on the diagram rather
+ *    than some other svg (e.g. a toolbar/zoom icon) Obsidian may render
+ *    into the same container — now checks every svg in the container
+ *    against the classifier.
  */
-export function createSvgRasterizer(): (svg: ArrayBuffer, scale: number) => Promise<{ data: ArrayBuffer }> {
-  return async (svg, scale) => {
-    const text = new TextDecoder().decode(svg);
-    const blob = new Blob([text], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
+export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
+  return async (source) => {
+    // Obsidian's Markdown post-processors — including whatever triggers
+    // Mermaid's own rendering — only run for elements actually attached to
+    // the document. A fully detached container (never appended anywhere)
+    // makes MarkdownRenderer.render() fall back to plain syntax-highlighted
+    // text for the fenced block, no diagram ever gets rendered, and no
+    // classifier can succeed because there's nothing valid to find (root
+    // cause confirmed via debug logging: candidateCount was always 1, and
+    // that one candidate was the code block's own "copy" button icon, not
+    // a placeholder or a mermaid SVG). Positioned off-screen rather than
+    // hidden via display:none/visibility:hidden, since some layout-
+    // dependent rendering paths skip work entirely for non-rendered
+    // elements the same way a detached element does.
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.left = "-99999px";
+    el.style.top = "0";
+    document.body.appendChild(el);
+    const component = new Component();
     try {
-      const image = await loadImage(url);
-      const width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
-      const height = Math.max(1, Math.round((image.naturalHeight || 150) * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas 2D context unavailable");
-      ctx.drawImage(image, 0, 0, width, height);
-      const png = await canvasToPng(canvas);
-      return { data: png };
+      await MarkdownRenderer.render(app, "```mermaid\n" + source + "\n```", el, "", component);
+      const svg = await waitForRenderedSvg(el);
+      if (!svg) throw new Error("Mermaid produced no SVG");
+      return svg.outerHTML;
     } finally {
-      URL.revokeObjectURL(url);
+      component.unload();
+      el.remove();
     }
   };
 }
 
 /**
- * Render a Mermaid diagram to SVG using Obsidian's own Mermaid instance (§4.11),
- * by rendering a fenced mermaid block via MarkdownRenderer and extracting the
- * SVG. Version-dependent and DOM-based → a manual-verification seam; failure is
- * contained (the export layer degrades to a code block + warning).
+ * Positively identify real mermaid diagram output, as opposed to a generic
+ * placeholder/error icon that also happens to be an `<svg>` with child
+ * elements (see createMermaidRenderer's doc comment for how this was
+ * found). Exported for unit testing against synthetic DOM structures —
+ * this codebase has no way to drive Obsidian's real mermaid rendering in
+ * tests, but the classification logic itself is plain DOM inspection and
+ * fully testable with jsdom.
+ *
+ * Requires BOTH:
+ *  - A mermaid-specific marker: `id` or `class` containing "mermaid", OR a
+ *    descendant carrying one of the CSS classes mermaid.js's own renderers
+ *    always emit (node/edge/cluster/label groups — true across flowchart,
+ *    sequence, class, state and other mermaid diagram types). A real
+ *    diagram's own `id`/`class` often does NOT contain "mermaid" at all
+ *    (e.g. `id="m0cd67588838a1682" class="flowchart"`, confirmed against a
+ *    live-captured diagram) — the descendant-class check is what actually
+ *    matches in that case, so the id/class substring check alone is not
+ *    sufficient and must stay an "or", not the primary signal.
+ *  - Non-empty `textContent`: every mermaid diagram element (flowchart
+ *    boxes, sequence messages, state labels, …) renders a text label, a
+ *    bare icon glyph never does. Checking `textContent` rather than
+ *    `querySelector("text, tspan")` matters because mermaid.js's default
+ *    label rendering uses HTML `<p>` inside `<foreignObject>`, not native
+ *    SVG text elements — confirmed against the same live-captured diagram.
  */
-export function createMermaidRenderer(app: App): (source: string) => Promise<string> {
-  return async (source) => {
-    const el = document.createElement("div");
-    const component = new Component();
-    try {
-      await MarkdownRenderer.render(app, "```mermaid\n" + source + "\n```", el, "", component);
-      const svg = el.querySelector("svg");
-      if (!svg) throw new Error("Mermaid produced no SVG");
-      return svg.outerHTML;
-    } finally {
-      component.unload();
-    }
-  };
+export function isMermaidDiagramSvg(svg: SVGElement): boolean {
+  const idAndClass = `${svg.id} ${svg.getAttribute("class") ?? ""}`.toLowerCase();
+  const hasMermaidMarker =
+    idAndClass.includes("mermaid") ||
+    svg.querySelector(
+      '[class*="node"], [class*="edge"], [class*="cluster"], [class*="label"], [class*="actor"], [class*="messageText"]',
+    ) !== null;
+  // NOT svg.querySelector("text, tspan"): confirmed against a real captured
+  // mermaid flowchart svg (id="m<hash>", class="flowchart" — no "mermaid"
+  // substring anywhere in either) that modern mermaid.js renders labels as
+  // HTML <p> elements inside <foreignObject>, not native SVG <text>/<tspan>
+  // — so that check rejected genuinely valid output (hasMermaidMarker was
+  // true via the node/edge/label descendant classes; hasTextContent was the
+  // one that wrongly failed). textContent covers both native SVG text and
+  // foreignObject-embedded HTML text, so it doesn't matter which rendering
+  // strategy a given mermaid version/diagram type uses.
+  const hasTextContent = (svg.textContent ?? "").trim().length > 0;
+  return hasMermaidMarker && hasTextContent;
 }
 
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error("Failed to load SVG for rasterisation"));
-    image.src = url;
-  });
+/**
+ * Poll for a positively-identified mermaid diagram svg, up to ~2s.
+ *
+ * Checks every `<svg>` in the container, not just the first one found:
+ * Obsidian's mermaid block can render more than one svg into the same
+ * container (e.g. a small toolbar/zoom-control icon alongside the actual
+ * diagram), and `el.querySelector("svg")` — first match in document order —
+ * has no guarantee of landing on the real diagram rather than a UI icon.
+ */
+export async function waitForRenderedSvg(el: HTMLElement): Promise<SVGElement | null> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const match = Array.from(el.querySelectorAll("svg")).find(isMermaidDiagramSvg);
+    if (match) return match;
+    if (Date.now() >= deadline) return null; // give up — never got real diagram content, not just "nothing at all".
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
-function canvasToPng(canvas: HTMLCanvasElement): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Canvas toBlob returned null"));
-        return;
-      }
-      blob.arrayBuffer().then(resolve, reject);
-    }, "image/png");
-  });
-}

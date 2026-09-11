@@ -4,6 +4,13 @@
 // system font stack, a 45rem centred column, dark-mode via prefers-color-scheme
 // and print rules so browser-print produces a decent result (§5.2). Colours and
 // spacing are TrueExport's judgment — only the structural rules above are fixed.
+//
+// Font, heading colour and paragraph rhythm are parameterised per §8 template
+// (see templates.ts) — everything else (layout, callouts, dark mode, print)
+// is shared across all four.
+
+import type { TemplateId } from "../core/options";
+import { htmlTemplateStyle } from "./templates";
 
 /** Callout colours (§4.4); every known type maps onto one of the eight. */
 const CALLOUT_COLORS: Record<string, string> = {
@@ -44,7 +51,8 @@ function calloutRules(): string {
     .join("\n");
 }
 
-export function buildCss(): string {
+export function buildCss(template: TemplateId = "default"): string {
+  const t = htmlTemplateStyle(template);
   return `
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
@@ -52,24 +60,49 @@ body {
   margin: 0;
   background: #ffffff;
   color: #1a1a1a;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.6;
+  /*
+   * CJK characters were confirmed dropped entirely from PDF output (not
+   * just tofu/wrong-glyph — genuinely absent from the extracted text), even
+   * though the same HTML source renders them correctly in an ordinary
+   * browser tab. Ordinary on-screen rendering falls back to whatever
+   * system font actually has the glyph even when it isn't in this list,
+   * but Electron's printToPDF runs through Chromium's print pipeline in an
+   * off-screen (show:false) window, where that implicit last-resort
+   * fallback isn't reliable. Listing common CJK system fonts explicitly —
+   * after the Latin-preferred fonts, so those still win for Latin text —
+   * makes the browser's normal (non-fallback-dependent) font matching pick
+   * a CJK-capable font directly instead of depending on print-path-specific
+   * fallback behaviour.
+   */
+  font-family: ${t.bodyFont};
+  line-height: ${t.lineHeight};
 }
 article.trueexport { max-width: 45rem; margin: 0 auto; padding: 2.5rem 1.25rem; }
-h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
+h1, h2, h3, h4, h5, h6 { font-family: ${t.headingFont}; color: ${t.headingColor}; line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
 h1 { font-size: 2rem; }
 h2 { font-size: 1.6rem; }
 h3 { font-size: 1.3rem; }
 h4 { font-size: 1.1rem; }
 h5 { font-size: 1rem; }
 h6 { font-size: 0.9rem; color: #666; }
-p { margin: 0 0 1em; }
+p { margin: ${t.paragraphMargin}; text-indent: ${t.paragraphIndent}; }
 a { color: #0b66c3; text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 0.1em 0.3em; border-radius: 3px; }
-pre { background: #f5f5f5; padding: 1rem; overflow: auto; border-radius: 6px; }
+pre { position: relative; background: #f5f5f5; padding: 1rem; overflow: auto; border-radius: 6px; }
 pre code { background: none; padding: 0; font-size: 0.85em; }
+.code-lang { position: absolute; top: 0.5em; right: 0.75em; font-size: 0.75em; font-style: italic; color: #666; }
+.tok-keyword { color: #0000ff; }
+.tok-string { color: #a31515; }
+.tok-comment { color: #008000; }
+.tok-number { color: #098658; }
+.tok-function { color: #795e26; }
 blockquote { margin: 1em 0; padding: 0.2em 1em; border-left: 4px solid #ccc; color: #555; }
+/* Embedded/transcluded content (§4.3) — a left border marking transcluded
+   content, distinct from callout/blockquote styling. Matches the DOCX
+   renderer's COLORS.embedBorder (#8C8C8C), deliberately distinct from both
+   the blockquote border colour and every callout accent colour. */
+.embedded { border-left: 3px solid #8c8c8c; padding-left: 0.75em; }
 table { border-collapse: collapse; width: 100%; margin: 1em 0; }
 th, td { border: 1px solid #ccc; padding: 0.4em 0.6em; }
 th { background: #f5f5f5; }
@@ -94,9 +127,19 @@ li.task input { margin-right: 0.4em; }
 .footnote-ref a, .footnote-back { text-decoration: none; }
 @media (prefers-color-scheme: dark) {
   body { background: #1e1e1e; color: #e0e0e0; }
+  /* Template heading colours (§8) are tuned for a light background; on dark
+     they'd read as low-contrast near-black text, so fall back to inherited
+     (light) body text colour instead — same as before templates had colour. */
+  h1, h2, h3, h4, h5 { color: inherit; }
   a { color: #5aa9ff; }
   code { background: rgba(255,255,255,0.1); }
   pre { background: #2a2a2a; }
+  .code-lang { color: #999; }
+  .tok-keyword { color: #569cd6; }
+  .tok-string { color: #ce9178; }
+  .tok-comment { color: #6a9955; }
+  .tok-number { color: #b5cea8; }
+  .tok-function { color: #dcdcaa; }
   blockquote { border-left-color: #555; color: #aaa; }
   th, td { border-color: #444; }
   th { background: #2a2a2a; }
@@ -108,9 +151,30 @@ li.task input { margin-right: 0.4em; }
 @media print {
   body { background: #fff; color: #000; }
   article.trueexport { max-width: none; padding: 0; }
-  a { color: #000; }
+  /*
+   * NOT plain black: PDF export goes through this exact print media query
+   * (Electron's printToPDF), and this plugin has no separate "print to
+   * paper" feature distinct from "export to PDF" — @media print here
+   * always means the PDF export path. Confirmed: links were rendering
+   * with no visual distinction at all (black, no underline) despite still
+   * being clickable, unlike Word/Pages/Google Docs, which all style links
+   * visibly. Blue + underlined matches the DOCX renderer's own convention
+   * (Word's built-in "Hyperlink" character style, applied via
+   * ExternalHyperlink/InternalHyperlink in src/docx/inline.ts).
+   */
+  a { color: #0b66c3; text-decoration: underline; }
   pre, blockquote, .callout, figure, table { break-inside: avoid; }
   h1, h2, h3, h4, h5, h6 { break-after: avoid; }
+  /*
+   * The footnote "jump back to reference" arrow (↩) is genuinely useful in
+   * an interactive HTML document — but Chromium's printToPDF does not
+   * reliably carry internal #anchor links over as clickable PDF links, so
+   * in the exported PDF it was confirmed to appear as an inert, non-
+   * functional stray glyph directly under the footnote text. Hidden only
+   * for the PDF/print path; the actual HTML export keeps it, since it's a
+   * working link there.
+   */
+  .footnote-back { display: none; }
 }
 `.trim();
 }

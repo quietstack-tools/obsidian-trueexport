@@ -4,8 +4,9 @@
 // stays cancellable, and drives the obsidian-free exportFolder() via an
 // AbortController. Only opened for Pro users (the command gates first).
 
-import { App, Modal, Setting } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import type { BatchResult } from "../export";
+import { BatchWarningsModal } from "./warnings-view";
 
 export interface BatchModalHost {
   runFolderExport(
@@ -18,7 +19,16 @@ export interface BatchModalHost {
 export class BatchModal extends Modal {
   private readonly controller = new AbortController();
   private progressEl: HTMLElement | null = null;
+  private cancelButton: ButtonComponent | null = null;
   private done = false;
+  /**
+   * True once the modal's DOM has gone away (Cancel/Close clicked, Escape,
+   * or Obsidian's own default backdrop-click dismissal — there is no public
+   * Modal API to suppress that). The export itself keeps running regardless
+   * (see onClose's doc comment); this only decides whether the eventual
+   * result needs a Notice fallback since there's no modal left to show it in.
+   */
+  private dismissed = false;
 
   constructor(
     app: App,
@@ -36,7 +46,8 @@ export class BatchModal extends Modal {
     contentEl.createEl("h3", { text: `Export folder "${this.folderName}"` });
     this.progressEl = contentEl.createEl("p", { text: "Preparing…" });
 
-    new Setting(contentEl).addButton((b) =>
+    new Setting(contentEl).addButton((b) => {
+      this.cancelButton = b;
       b.setButtonText("Cancel").onClick(() => {
         if (this.done) {
           this.close();
@@ -44,14 +55,24 @@ export class BatchModal extends Modal {
           this.controller.abort();
           if (this.progressEl) this.progressEl.setText("Cancelling…");
         }
-      }),
-    );
+      });
+    });
 
     void this.run();
   }
 
+  /**
+   * Runs whenever the modal's DOM goes away — including Obsidian's own
+   * default click-outside-to-dismiss behaviour (there's no public Modal API
+   * to disable that), not just an explicit Cancel/Close click. D22: it must
+   * NOT abort the run as a side effect of the modal closing. Cancellation is
+   * only ever explicit, via the Cancel button's own onClick above — an
+   * ordinary action like switching notes in the sidebar (which can trigger
+   * this the same way a backdrop click would) must never silently truncate
+   * an in-progress batch export.
+   */
   onClose(): void {
-    this.controller.abort();
+    this.dismissed = true;
     this.contentEl.empty();
   }
 
@@ -67,20 +88,58 @@ export class BatchModal extends Modal {
       this.showSummary(result);
     } catch (error) {
       console.error("[TrueExport]", error);
-      this.done = true;
-      if (this.progressEl) {
-        this.progressEl.setText(`Folder export failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.markDone();
+      const message = `Folder export failed: ${error instanceof Error ? error.message : String(error)}`;
+      if (this.dismissed) {
+        // No modal left to show this in — the export still ran to whatever
+        // point it failed at, so surface it rather than going silent.
+        new Notice(message);
+      } else if (this.progressEl) {
+        this.progressEl.setText(message);
       }
     }
   }
 
-  private showSummary(result: BatchResult): void {
+  /**
+   * Once the batch has finished (success, failure, or cancelled) there is
+   * nothing left to cancel — relabel the button so it reads as a plain
+   * dismissal ("Close") rather than implying an in-progress action can still
+   * be stopped ("Cancel"). The click handler already special-cases `done` to
+   * just close the modal; this only fixes the label to match.
+   */
+  private markDone(): void {
     this.done = true;
-    if (!this.progressEl) return;
+    this.cancelButton?.setButtonText("Close");
+  }
+
+  private showSummary(result: BatchResult): void {
+    this.markDone();
     const parts = [`${result.outputs.length} of ${result.total} exported`];
     if (result.failures.length > 0) parts.push(`${result.failures.length} failed`);
     if (result.cancelled) parts.push("cancelled");
     if (result.warnings.length > 0) parts.push(`${result.warnings.length} warning(s)`);
-    this.progressEl.setText(parts.join(" · "));
+    const summary = parts.join(" · ");
+    if (this.dismissed) {
+      // The modal was already dismissed (e.g. the user navigated away) before
+      // the export finished running in the background — surface the result
+      // via a Notice instead of silently finishing with nothing shown. A
+      // Notice can't carry a button, so the per-file warning breakdown below
+      // isn't reachable in this path — the aggregate count is the best this
+      // can do once there's no modal left.
+      new Notice(`Folder export: ${summary}`);
+      return;
+    }
+    if (this.progressEl) this.progressEl.setText(summary);
+    if (result.warnings.length > 0) {
+      // A count alone doesn't say WHICH of the (possibly many) files had
+      // issues or what they were — the single-note export's warnings modal
+      // already solves this per-file; BatchWarningsModal is the same pattern
+      // grouped by source file, since a batch can span many of them.
+      new Setting(this.contentEl).addButton((b) =>
+        b.setButtonText("View details").onClick(() => {
+          new BatchWarningsModal(this.app, this.folderName, result.warnings).open();
+        }),
+      );
+    }
   }
 }

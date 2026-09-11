@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import * as JSZip from "jszip";
-import { exportNote, exportFolder, scanNote, clearReferenceStyleCache, type VaultWriter } from "../../src/export";
+import {
+  exportNote,
+  exportFolder,
+  scanNote,
+  clearReferenceStyleCache,
+  friendlyErrorMessage,
+  type VaultWriter,
+} from "../../src/export";
 import { DEFAULT_SETTINGS, type TrueExportSettings } from "../../src/ui/settings";
 import { MemoryVaultAdapter } from "../helpers/memory-adapter";
 
@@ -199,6 +206,44 @@ describe("scanNote", () => {
     // scanNote takes no deps → the fetcher is never reachable.
     await scanNote(remoteAdapter, { ...settings(), allowRemoteImages: true }, "R.md");
     expect(fetchRemoteImage).not.toHaveBeenCalled();
+  });
+
+  it("still never fetches remote images even when deps (containing a fetcher) ARE passed", async () => {
+    // scanNote now threads deps through for mermaidToSvg (§D20 follow-up) —
+    // this guards that fetchRemoteImage specifically is still stripped out
+    // before reaching buildDocument, so passing deps for Mermaid doesn't
+    // accidentally re-enable network access from a pre-scan.
+    const fetchRemoteImage = vi.fn(async () => ({ data: new ArrayBuffer(1), mimeType: "image/png" }));
+    const remoteAdapter = new MemoryVaultAdapter({ notes: { "R.md": "![x](https://e.com/a.png)" } });
+    await scanNote(remoteAdapter, { ...settings(), allowRemoteImages: true }, "R.md", "html", "default", {
+      fetchRemoteImage,
+    });
+    expect(fetchRemoteImage).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a Mermaid render failure, same as a real export would", async () => {
+    const source = "```mermaid\nnot a real diagram\n```\n";
+    const mermaidAdapter = new MemoryVaultAdapter({ notes: { "M.md": source } });
+    const mermaidToSvg = vi.fn(async () => {
+      throw new Error("parse error");
+    });
+    const found = await scanNote(mermaidAdapter, settings(), "M.md", "html", "default", { mermaidToSvg });
+    expect(mermaidToSvg).toHaveBeenCalled();
+    expect(found.some((w) => w.construct === "mermaid")).toBe(true);
+  });
+
+  it("surfaces a corrupt/invalid embedded SVG without rasterising it", async () => {
+    const source = "![[broken.svg]]\n";
+    const svgAdapter = new MemoryVaultAdapter({
+      notes: { "S.md": source },
+      binaries: { "broken.svg": new TextEncoder().encode("not an svg at all").buffer },
+    });
+    const rasterizeSvg = vi.fn(async () => ({ data: new ArrayBuffer(1), width: 1, height: 1 }));
+    const found = await scanNote(svgAdapter, settings(), "S.md", "docx", "default", { rasterizeSvg });
+    // The (deliberately not invoked) rasteriser is never reached from a scan.
+    expect(rasterizeSvg).not.toHaveBeenCalled();
+    const imageWarnings = found.filter((w) => w.construct === "image");
+    expect(imageWarnings.some((w) => w.message.toLowerCase().includes("broken.svg"))).toBe(true);
   });
 });
 
@@ -457,5 +502,30 @@ describe("reference DOCX (Pro; §5.1)", () => {
     // The reference file is read once across two exports; the second is a cache hit.
     const refReads = readSpy.mock.calls.filter((c) => c[0] === "templates/house.docx").length;
     expect(refReads).toBe(1);
+  });
+});
+
+describe("friendlyErrorMessage", () => {
+  it("turns an EACCES write failure into a plain-language permission message", () => {
+    const error = Object.assign(new Error("EACCES: permission denied, open '/foo/bar.docx'"), {
+      code: "EACCES",
+    });
+    expect(friendlyErrorMessage(error)).toBe(
+      "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.",
+    );
+  });
+
+  it("turns an EPERM write failure into the same plain-language permission message", () => {
+    const error = Object.assign(new Error("EPERM: operation not permitted, open '/foo/bar.docx'"), {
+      code: "EPERM",
+    });
+    expect(friendlyErrorMessage(error)).toBe(
+      "Can't write to this folder — check that you have permission to save files there, or choose a different output folder.",
+    );
+  });
+
+  it("leaves other errors untouched", () => {
+    const error = new Error("Could not read note \"foo.md\". Make sure it still exists.");
+    expect(friendlyErrorMessage(error)).toBe('Could not read note "foo.md". Make sure it still exists.');
   });
 });

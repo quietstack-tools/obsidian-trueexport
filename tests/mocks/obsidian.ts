@@ -134,6 +134,10 @@ export class Vault {
   getMarkdownFiles(): TFile[] {
     return [...this.notes.keys()].filter((p) => p.endsWith(".md")).map((p) => this.fileFor(p));
   }
+  /** All files in the vault — notes and binaries alike (mirrors the real Vault.getFiles()). */
+  getFiles(): TFile[] {
+    return [...this.notes.keys(), ...this.binaries.keys()].map((p) => this.fileFor(p));
+  }
 }
 
 export class MetadataCache {
@@ -237,7 +241,17 @@ export class Plugin {
   }
   addRibbonIcon(icon: string, title: string, cb: (e: MouseEvent) => void) {
     const el = document.createElement("div");
-    this.ribbons.push({ icon, title, cb, el });
+    const entry = { icon, title, cb, el };
+    this.ribbons.push(entry);
+    // Real Obsidian has no removeRibbonIcon(); the documented pattern is
+    // calling .remove() on the returned element. Mirror that here so tests
+    // can assert dynamic add/remove via the same call the real code makes.
+    const nativeRemove = el.remove.bind(el);
+    el.remove = () => {
+      nativeRemove();
+      const idx = this.ribbons.indexOf(entry);
+      if (idx !== -1) this.ribbons.splice(idx, 1);
+    };
     return el;
   }
   addSettingTab(tab: any) {
@@ -285,6 +299,30 @@ export class Modal {
     return this;
   }
   titleText = "";
+}
+
+// ---- Suggest modals (fuzzy file pickers etc.) ----
+// Minimal: tests drive these directly (getItems()/onChooseItem(...)), not via
+// simulated keystrokes/fuzzy-matching, matching how other modals in this test
+// suite are exercised (constructed, methods called directly).
+
+export class SuggestModal<T> extends Modal {
+  inputEl: HTMLInputElement = document.createElement("input");
+  emptyStateText = "";
+  limit = 100;
+  setPlaceholder(p: string) {
+    this.inputEl.placeholder = p;
+    return this;
+  }
+  setInstructions(_instructions: unknown[]) {
+    return this;
+  }
+}
+
+export abstract class FuzzySuggestModal<T> extends SuggestModal<T> {
+  abstract getItems(): T[];
+  abstract getItemText(item: T): string;
+  abstract onChooseItem(item: T, evt: MouseEvent | KeyboardEvent): void;
 }
 
 // ---- Settings tab + components ----
@@ -351,7 +389,27 @@ export class TextComponent extends ValueComponent<string> {
 }
 
 export class ToggleComponent extends ValueComponent<boolean> {
+  inputEl = document.createElement("input");
+  constructor() {
+    super();
+    this.inputEl.type = "checkbox";
+  }
   setTooltip() {
+    return this;
+  }
+  setValue(v: boolean) {
+    super.setValue(v);
+    this.inputEl.checked = v;
+    return this;
+  }
+  onChange(cb: (v: boolean) => void) {
+    super.onChange(cb);
+    this.inputEl.addEventListener("change", () => cb(this.inputEl.checked));
+    return this;
+  }
+  setDisabled(d: boolean) {
+    super.setDisabled(d);
+    this.inputEl.disabled = d;
     return this;
   }
 }
@@ -466,6 +524,7 @@ export class Setting {
   }
   addToggle(cb: (c: ToggleComponent) => void) {
     const c = new ToggleComponent();
+    this.controlEl.appendChild(c.inputEl);
     cb(c);
     this.components.push(c);
     return this;

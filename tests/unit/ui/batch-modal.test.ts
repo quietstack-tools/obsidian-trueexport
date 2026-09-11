@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { App } from "obsidian";
+import { App, Modal } from "obsidian";
+import { noticeLog } from "../../mocks/obsidian";
 import { BatchModal, type BatchModalHost } from "../../../src/ui/batch-modal";
 import type { BatchResult } from "../../../src/export";
 
@@ -26,6 +27,100 @@ describe("BatchModal", () => {
     expect(modal.contentEl.textContent).toContain("2 of 2 exported");
   });
 
+  it("relabels the button from Cancel to Close once the export has finished, and closes on click with no side effects", async () => {
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result()),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    // No stray "Cancel" button left over once the batch is done.
+    const buttons = Array.from(modal.contentEl.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(["Close"]);
+
+    const close = modal.contentEl.querySelector("button")!;
+    close.click();
+    expect((modal as unknown as { isOpen: boolean }).isOpen).toBe(false);
+  });
+
+  it("still reads Cancel while the export is in progress", async () => {
+    let resolveRun: (() => void) | undefined;
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(
+        () =>
+          new Promise<BatchResult>((resolve) => {
+            resolveRun = () => resolve(result());
+          }),
+      ),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    const button = modal.contentEl.querySelector("button")!;
+    expect(button.textContent).toBe("Cancel");
+
+    resolveRun?.();
+    await flush();
+    expect(button.textContent).toBe("Close");
+  });
+
+  it("D22: does NOT abort the export when the modal's DOM goes away for a reason other than clicking Cancel", async () => {
+    // Obsidian's default click-outside-to-dismiss (or any other cause) calls
+    // the exact same close() path as an explicit user action — from the
+    // modal's own perspective there is no way to distinguish "user clicked
+    // Cancel" from "user clicked away/navigated elsewhere". Simulating it via
+    // close() directly is therefore a faithful reproduction of the reported
+    // bug (switching notes in the sidebar while a batch export runs), not a
+    // synthetic case only the Cancel button can trigger.
+    let capturedSignal: AbortSignal | undefined;
+    let resolveRun: (() => void) | undefined;
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(
+        (_folder, _onProgress, signal) =>
+          new Promise<BatchResult>((resolve) => {
+            capturedSignal = signal;
+            resolveRun = () => resolve(result());
+          }),
+      ),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    modal.close(); // ordinary dismissal, NOT the Cancel button
+    expect(capturedSignal?.aborted).toBe(false);
+
+    // The export keeps running to completion in the background.
+    resolveRun?.();
+    await flush();
+    expect(capturedSignal?.aborted).toBe(false);
+  });
+
+  it("D22: surfaces the completed result via a Notice when the modal was already dismissed", async () => {
+    let resolveRun: (() => void) | undefined;
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(
+        () =>
+          new Promise<BatchResult>((resolve) => {
+            resolveRun = () => resolve(result({ outputs: ["a.html"], total: 2 }));
+          }),
+      ),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    const noticesBefore = noticeLog.length;
+    modal.close();
+    resolveRun?.();
+    await flush();
+
+    expect(noticeLog.length).toBeGreaterThan(noticesBefore);
+    expect(noticeLog[noticeLog.length - 1]).toContain("1 of 2 exported");
+  });
+
   it("offers a Cancel button that aborts the run", async () => {
     let capturedSignal: AbortSignal | undefined;
     const host: BatchModalHost = {
@@ -40,5 +135,57 @@ describe("BatchModal", () => {
     expect(cancel).toBeDefined();
     cancel.click();
     expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("offers a 'View details' button with a per-file warning breakdown when the batch has warnings", async () => {
+    const warnings: BatchResult["warnings"] = [
+      { construct: "math", message: "Equation couldn't be converted.", line: 14, sourcePath: "proj/One.md" },
+      { construct: "image", message: "Image not found: x.png.", line: 3, sourcePath: "proj/Two.md" },
+    ];
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result({ warnings })),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    // Not just an aggregate count — a real way to see which file had what.
+    expect(modal.contentEl.textContent).toContain("2 warning(s)");
+    const viewDetails = Array.from(modal.contentEl.querySelectorAll("button")).find(
+      (b) => b.textContent === "View details",
+    )!;
+    expect(viewDetails).toBeDefined();
+
+    const opened: InstanceType<typeof Modal>[] = [];
+    const originalOpen = Modal.prototype.open;
+    const openSpy = vi.spyOn(Modal.prototype, "open").mockImplementation(function (this: InstanceType<typeof Modal>) {
+      opened.push(this);
+      return originalOpen.call(this);
+    });
+    try {
+      viewDetails.click();
+    } finally {
+      openSpy.mockRestore();
+    }
+
+    // Opens the per-file breakdown modal — grouped headings, not a flat count.
+    const details = opened.find((m) => m.constructor.name === "BatchWarningsModal") as unknown as
+      | { contentEl: HTMLElement }
+      | undefined;
+    expect(details).toBeDefined();
+    const detailsHeadings = Array.from(details!.contentEl.querySelectorAll("h4")).map((h) => h.textContent);
+    expect(detailsHeadings).toEqual(["proj/One.md", "proj/Two.md"]);
+  });
+
+  it("does not offer 'View details' when there are no warnings", async () => {
+    const host: BatchModalHost = {
+      runFolderExport: vi.fn(async () => result()),
+    };
+    const modal = new BatchModal(new App(), host, "proj", "proj");
+    modal.onOpen();
+    await flush();
+
+    const buttons = Array.from(modal.contentEl.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).not.toContain("View details");
   });
 });

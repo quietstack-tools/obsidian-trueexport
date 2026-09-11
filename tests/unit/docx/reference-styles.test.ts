@@ -140,6 +140,39 @@ describe("extractStylesFromXml", () => {
     // Paragraph props still come from <w:pPr> and are unaffected.
     expect(s.heading1?.paragraph).toEqual({ before: 320, after: 160 });
   });
+
+  // D24 (this session): a real reference .docx a user built with the `docx`
+  // npm library had TWO <w:style w:styleId="Heading1"> blocks — the library's
+  // own auto-generated default (2E74B5/32, no custom font) emitted first,
+  // then the author's actual intended custom style (Verdana/C55A11) second.
+  // First-match-wins silently picked the wrong one. Last-wins is the fix:
+  // matches the common authoring pattern behind this kind of duplicate (a
+  // boilerplate/default block first, a correction appended after).
+  it("resolves a duplicate w:styleId to the LAST definition, not the first (D24)", () => {
+    const xml =
+      `<w:styles xmlns:w="x">` +
+      `<w:style w:styleId="Heading1"><w:name w:val="heading 1"/>` +
+      `<w:rPr><w:color w:val="2E74B5"/><w:sz w:val="32"/></w:rPr></w:style>` +
+      `<w:style w:styleId="Heading1"><w:name w:val="heading 1"/>` +
+      `<w:rPr><w:rFonts w:ascii="Verdana"/><w:color w:val="C55A11"/><w:sz w:val="32"/></w:rPr></w:style>` +
+      `</w:styles>`;
+    const s = extractStylesFromXml(xml);
+    expect(s.heading1?.run?.font).toBe("Verdana");
+    expect(s.heading1?.run?.color).toBe("C55A11");
+    expect(s.heading1?.run?.color).not.toBe("2E74B5");
+  });
+
+  it("resolves a duplicate display name (no styleId match) to the LAST definition too", () => {
+    const xml =
+      `<w:styles xmlns:w="x">` +
+      `<w:style w:styleId="First"><w:name w:val="Custom Head"/><w:rPr><w:color w:val="111111"/></w:rPr></w:style>` +
+      `<w:style w:styleId="Second"><w:name w:val="Custom Head"/><w:rPr><w:color w:val="222222"/></w:rPr></w:style>` +
+      `</w:styles>`;
+    // Neither styleId matches "Heading1"/"heading 1" — falls back to matching
+    // by display name, which must apply the same last-wins rule.
+    const s = extractStylesFromXml(xml.replace(/Custom Head/g, "heading 1"));
+    expect(s.heading1?.run?.color).toBe("222222");
+  });
 });
 
 describe("extractStylesFromXml — resource bounds (Finding 1)", () => {

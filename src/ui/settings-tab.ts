@@ -3,11 +3,13 @@
 // The settings tab (§6.4): General, Word, PDF, HTML, Advanced, Licence and
 // About. Licence fields exist here but activation logic lands in Stage 8.
 
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, Platform, Plugin, PluginSettingTab, Setting } from "obsidian";
 import type { ImageDpi, PageSize } from "../core/options";
 import type { TrueExportSettings } from "./settings";
 import type { LicenceManager } from "../licence";
 import { PRO_URL } from "./export-modal";
+import { isValidExportRoot, pickExportFolder } from "../fs-writer";
+import { ReferenceDocxModal } from "./reference-docx-modal";
 
 // Polar's documented static customer-portal URL (customer authenticates by
 // email on the page — no pre-session needed).
@@ -22,6 +24,8 @@ export interface SettingsHost {
   settings: TrueExportSettings;
   saveSettings(): Promise<void>;
   licence: LicenceManager;
+  /** Adds/removes the ribbon icon to match the current setting, live. */
+  updateRibbonIcon(): void;
 }
 
 const PAGE_SIZES: Record<PageSize, string> = { A4: "A4", Letter: "Letter", Legal: "Legal" };
@@ -72,15 +76,41 @@ export class TrueExportSettingTab extends PluginSettingTab {
           save();
         }),
     );
-    new Setting(containerEl)
-      .setName("Custom output folder")
-      .setDesc("Used when output location is “Custom folder”.")
-      .addText((t) =>
-        t.setPlaceholder("Exports").setValue(s.customOutputFolder).onChange((v) => {
-          s.customOutputFolder = v;
-          save();
-        }),
-      );
+    if (Platform.isDesktop) {
+      // A real filesystem folder, chosen via the native OS dialog — the one
+      // documented exception to "never write outside the vault" (CLAUDE.md).
+      // The path is never free-typed, so it can't end up as a literal "~" or
+      // a vault-relative guess; it's always a real absolute directory.
+      new Setting(containerEl)
+        .setName("Custom output folder")
+        .setDesc(
+          s.customOutputFolder
+            ? `Used when output location is “Custom folder”. Currently: ${s.customOutputFolder}`
+            : "Used when output location is “Custom folder”. Not set — exports fall back to the vault root.",
+        )
+        .addButton((b) =>
+          b.setButtonText("Choose folder…").onClick(async () => {
+            const chosen = await pickExportFolder();
+            if (chosen === null) return;
+            if (!isValidExportRoot(chosen)) {
+              new Notice("That folder couldn't be used. Choose a different one.");
+              return;
+            }
+            s.customOutputFolder = chosen;
+            await this.host.saveSettings();
+            this.display();
+          }),
+        );
+    } else {
+      // No Electron/native dialog on mobile — the setting is desktop-only.
+      // Exports with "Custom folder" selected fall back to the vault root
+      // (§7.5-style platform split, same pattern as PDF being desktop-only).
+      new Setting(containerEl)
+        .setName("Custom output folder")
+        .setDesc(
+          "Desktop only. On mobile, “Custom folder” output falls back to the vault root.",
+        );
+    }
     new Setting(containerEl)
       .setName("Filename pattern")
       .setDesc("Placeholders: {{title}}, {{date}}, {{time}}.")
@@ -94,6 +124,7 @@ export class TrueExportSettingTab extends PluginSettingTab {
       tg.setValue(s.showRibbonIcon).onChange((v) => {
         s.showRibbonIcon = v;
         save();
+        this.host.updateRibbonIcon();
       }),
     );
 
@@ -123,24 +154,55 @@ export class TrueExportSettingTab extends PluginSettingTab {
         save();
       }),
     );
-    // Reference DOCX is Pro-gated: enabled only when activated (§8).
-    new Setting(containerEl)
-      .setName("Reference DOCX (house style)")
-      .setDesc(
-        this.host.licence.isActivated
-          ? "Vault path to a .docx whose Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) are applied to Word exports. Leave blank to use built-in styles."
-          : "Requires TrueExport Pro.",
-      )
-      .addText((t) =>
-        t
-          .setPlaceholder("templates/house-style.docx")
-          .setValue(s.referenceDocxPath)
+    // Reference DOCX is Pro-gated: enabled only when activated (§8). A
+    // vault-scoped fuzzy picker, not a typed path or an OS file dialog — the
+    // stored value must stay vault-relative (read via
+    // adapter.readBinary() → app.vault.getAbstractFileByPath()), which an
+    // OS-wide picker could never guarantee (see reference-docx-modal.ts).
+    const referenceDocxSetting = new Setting(containerEl).setName("Reference DOCX (house style)");
+    if (this.host.licence.isActivated) {
+      referenceDocxSetting.setDesc(
+        s.referenceDocxPath
+          ? `Applies Normal, Heading 1-6, Quote, Caption and Code styles (font, colour, size, spacing) from this file to Word exports. Currently: ${s.referenceDocxPath}`
+          : "Select a .docx file already in your vault to use as a style reference for Word exports (font, colour, size, spacing for Normal, Heading 1-6, Quote and Code). Not set — built-in styles are used.",
+      );
+    } else {
+      // Same clickable "Learn more" pattern as the export modal's template
+      // upsell (src/ui/export-modal.ts) and the folder-export Pro-gating
+      // modal (src/ui/pro-required-modal.ts) — a real <a>, not plain text
+      // mentioning a URL.
+      const frag = document.createDocumentFragment();
+      frag.appendChild(document.createTextNode("Requires TrueExport Pro. "));
+      const link = document.createElement("a");
+      link.href = PRO_URL;
+      link.textContent = "Learn more";
+      frag.appendChild(link);
+      referenceDocxSetting.setDesc(frag);
+    }
+    if (s.referenceDocxPath) {
+      referenceDocxSetting.addButton((b) =>
+        b
+          .setButtonText("Clear")
           .setDisabled(!this.host.licence.isActivated)
-          .onChange((v) => {
-            s.referenceDocxPath = v;
-            save();
+          .onClick(async () => {
+            s.referenceDocxPath = "";
+            await this.host.saveSettings();
+            this.display();
           }),
       );
+    }
+    referenceDocxSetting.addButton((b) =>
+      b
+        .setButtonText("Choose file…")
+        .setDisabled(!this.host.licence.isActivated)
+        .onClick(() => {
+          new ReferenceDocxModal(this.app, (file) => {
+            s.referenceDocxPath = file.path;
+            void this.host.saveSettings();
+            this.display();
+          }).open();
+        }),
+    );
 
     // PDF
     new Setting(containerEl).setName("PDF").setHeading();
@@ -274,7 +336,9 @@ export class TrueExportSettingTab extends PluginSettingTab {
           .setCta()
           .onClick(async () => {
             if (licence.isActivated) {
-              await licence.deactivate();
+              b.setDisabled(true).setButtonText("Deactivating…");
+              const outcome = await licence.deactivate();
+              new Notice(outcome.message);
               this.display();
               return;
             }

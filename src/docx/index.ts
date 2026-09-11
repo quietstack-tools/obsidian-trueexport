@@ -13,11 +13,13 @@ import { Document, Packer, Paragraph, PageOrientation } from "docx";
 import type { IdmDocument } from "../core/model/document";
 import type { MediaResource } from "../core/model/nodes";
 import type { BlockNode, InlineNode } from "../core/model/nodes";
-import type { ExportOptions, PageSize } from "../core/options";
+import type { ExportOptions } from "../core/options";
 import type { WarningCollector } from "../core/warnings";
 import { NumberingBuilder } from "./numbering";
 import { buildStyles } from "./styles";
-import { renderBlocks, renderFrontmatterTable } from "./blocks";
+import { renderBlocks, renderFrontmatterTable, renderFootnoteContent } from "./blocks";
+import { sanitizeAnchor } from "./inline";
+import { PAGE_SIZES_TWIPS, isEmbeddableRasterFormat, sniffAnyImageFormat, imageFormatLabel } from "./image";
 import type { DocxDeps, RenderContext } from "./context";
 import type { ReferenceStyles } from "./reference-styles";
 
@@ -43,12 +45,6 @@ export interface DocxRenderOptions {
 
 const FREE_ATTRIBUTION = "(exported with TrueExport — quietstack.tools)";
 
-const PAGE_SIZES: Record<PageSize, { w: number; h: number }> = {
-  A4: { w: 11906, h: 16838 },
-  Letter: { w: 12240, h: 15840 },
-  Legal: { w: 12240, h: 20160 },
-};
-
 export async function renderDocx(
   doc: IdmDocument,
   options: ExportOptions,
@@ -57,18 +53,30 @@ export async function renderDocx(
   const deps = render.deps ?? {};
 
   // Rasterise SVGs to PNG (§4.9) before rendering, so rendering stays sync.
-  await rasterizeSvgs(collectResources(doc.blocks, doc.footnotes), deps, render.warnings, doc.sourcePath);
+  const resources = collectResources(doc.blocks, doc.footnotes);
+  await rasterizeSvgs(resources, deps, render.warnings, doc.sourcePath);
+  // Transcode any raster format Word can't natively embed — AVIF, WebP, …
+  // (§D25) — to PNG before rendering, same "resolve before sync render"
+  // shape as the SVG pass above.
+  await transcodeUnsupportedImages(resources, deps, render.warnings, doc.sourcePath);
 
+  // A local counter, fresh per render call — every bookmark created anywhere
+  // in this document (headings, block refs, footnote NOTEREF targets) draws
+  // from this single sequence, so no two ever collide (see
+  // RenderContext.nextBookmarkId's doc comment for why this exists).
+  let bookmarkIdCounter = 0;
   const ctx: RenderContext = {
     options,
     deps,
     numbering: new NumberingBuilder(),
     bookmarks: new Set(),
+    footnoteRefs: new Set(),
+    nextBookmarkId: () => ++bookmarkIdCounter,
   };
 
   const bodyChildren = [];
   if (options.frontmatterMode === "table" && Object.keys(doc.frontmatter).length > 0) {
-    bodyChildren.push(renderFrontmatterTable(doc.frontmatter));
+    bodyChildren.push(renderFrontmatterTable(doc.frontmatter, ctx));
   }
   bodyChildren.push(...renderBlocks(doc.blocks, ctx));
 
@@ -76,7 +84,8 @@ export async function renderDocx(
   const footnotes: Record<number, { children: Paragraph[] }> = {};
   for (const def of doc.footnotes.values()) {
     if (def.assignedNumber === undefined) continue;
-    const children = renderBlocks(def.children, ctx).filter((c): c is Paragraph => c instanceof Paragraph);
+    const bookmarkId = sanitizeAnchor(`footnoteref-${def.assignedNumber}`);
+    const children = renderFootnoteContent(def.children, bookmarkId, ctx);
     footnotes[def.assignedNumber] = { children };
   }
 
@@ -85,7 +94,7 @@ export async function renderDocx(
     title: documentTitle(doc, options),
     description: documentDescription(doc, options, render.pro ?? false),
     keywords: documentKeywords(doc, options),
-    styles: buildStyles(render.referenceStyles),
+    styles: buildStyles(options.template, render.referenceStyles),
     numbering: { config: ctx.numbering.configs },
     footnotes: Object.keys(footnotes).length > 0 ? footnotes : undefined,
     sections: [{ properties: pageProperties(options), children: bodyChildren }],
@@ -125,7 +134,7 @@ function documentDescription(doc: IdmDocument, options: ExportOptions, pro: bool
 }
 
 function pageProperties(options: ExportOptions) {
-  const size = PAGE_SIZES[options.pageSize] ?? PAGE_SIZES.A4;
+  const size = PAGE_SIZES_TWIPS[options.pageSize] ?? PAGE_SIZES_TWIPS.A4;
   const landscape = options.orientation === "landscape";
   return {
     page: {
@@ -141,7 +150,12 @@ function pageProperties(options: ExportOptions) {
 
 // ---- SVG rasterisation pass ----
 
-function collectResources(
+/**
+ * Exported so scanNote() (export.ts) can reuse the same walk to run a
+ * lighter-weight, rasterisation-free SVG well-formedness pre-check — see the
+ * doc comment on checkSvgWellFormedness in export.ts for why.
+ */
+export function collectResources(
   blocks: BlockNode[],
   footnotes: IdmDocument["footnotes"],
 ): MediaResource[] {
@@ -195,9 +209,13 @@ async function rasterizeSvgs(
   for (const res of resources) {
     if (res.kind === "binary" && res.mimeType === "image/svg+xml" && res.data) {
       try {
-        const { data } = await deps.rasterizeSvg(res.data, 2);
+        const { data, width, height } = await deps.rasterizeSvg(res.data, 2);
         res.data = data;
         res.mimeType = "image/png";
+        // The physical size to DISPLAY at, not the (2x-oversampled) PNG's
+        // raw pixel dimensions — see MediaResource.intendedWidth/Height.
+        res.intendedWidth = width;
+        res.intendedHeight = height;
       } catch {
         // One malformed SVG must never abort the whole export (§4.9). Leave the
         // original SVG bytes in place — the renderer degrades an un-rasterised
@@ -215,4 +233,47 @@ async function rasterizeSvgs(
 
 function svgName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * Transcode any raster image Word can't natively embed (AVIF, WebP, or
+ * anything else outside the four formats it supports) to PNG (§D25). SVGs
+ * are excluded — rasterizeSvgs() above already resolved (or gave up on)
+ * those. Mirrors rasterizeSvgs()'s degrade-don't-abort shape exactly: on
+ * success the resource becomes real PNG bytes; on failure OR when no
+ * rasterizeImage capability is injected (mobile, or pure tests), the
+ * original bytes are left untouched and a warning is recorded — buildImage()
+ * (src/docx/inline.ts) degrades any still-unembeddable resource reaching it
+ * to a placeholder, the same way it already does for an un-rasterised SVG.
+ */
+async function transcodeUnsupportedImages(
+  resources: MediaResource[],
+  deps: DocxDeps,
+  warnings: WarningCollector | undefined,
+  sourcePath: string,
+): Promise<void> {
+  for (const res of resources) {
+    if (res.kind !== "binary" || !res.data || res.mimeType === "image/svg+xml") continue;
+    if (isEmbeddableRasterFormat(res.data, res.mimeType)) continue; // already fine — nothing to do
+
+    if (deps.rasterizeImage) {
+      try {
+        const captureMimeType = sniffAnyImageFormat(res.data) ?? res.mimeType ?? "application/octet-stream";
+        res.data = await deps.rasterizeImage(res.data, captureMimeType);
+        res.mimeType = "image/png";
+        continue; // success — no warning
+      } catch {
+        // Fall through to the placeholder + warning below. Leave the
+        // original (still-undecodable-by-Word) bytes in place; buildImage()
+        // is what actually degrades them to a placeholder.
+      }
+    }
+
+    const format = sniffAnyImageFormat(res.data) ?? res.mimeType ?? "unrecognised format";
+    warnings?.add({
+      construct: "image",
+      message: `Couldn't embed the image "${svgName(res.originalPath)}" (${imageFormatLabel(format)}) for Word; it was shown as a placeholder.`,
+      sourcePath,
+    });
+  }
 }

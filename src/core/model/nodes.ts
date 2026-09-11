@@ -38,6 +38,15 @@ export interface NodeBase {
 export interface BlockBase extends NodeBase {
   /** Obsidian block reference id (`^id`) attached to this block, if any. */
   blockId?: string;
+  /**
+   * Set on every top-level block spliced in by a transclusion (§4.3), so
+   * renderers can visually distinguish embedded content from the note's own
+   * native content — matching Obsidian's own bordered embed preview.
+   * Deliberately shallow: only the blocks the resolver directly spliced in
+   * are marked, not every descendant recursively (e.g. individual items of
+   * an embedded list aren't marked separately from the list itself).
+   */
+  embedded?: boolean;
 }
 
 export type IdmNode = BlockNode | InlineNode;
@@ -293,4 +302,16 @@ export interface MediaResource {
   data?: ArrayBuffer;
   mimeType?: string;
   originalPath: string;
+  /**
+   * The intended physical DISPLAY size in px, distinct from `data`'s raw
+   * pixel dimensions — set when a resource was rasterised at a higher pixel
+   * density than its display size for sharpness (e.g. a Mermaid diagram
+   * rasterised at 2x: the PNG is 558×728px, but should still DISPLAY at
+   * 279×364px, not fill the page at its raw pixel count read as if it were
+   * 96dpi). Absent for anything that isn't deliberately oversampled — an
+   * ordinary embedded image's raw pixel dimensions are its display size, no
+   * distinction needed.
+   */
+  intendedWidth?: number;
+  intendedHeight?: number;
 }

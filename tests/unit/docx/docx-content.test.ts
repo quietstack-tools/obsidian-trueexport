@@ -31,14 +31,116 @@ describe("DOCX content", () => {
     expect(documentXml).toContain("[Image not found: missing.png]");
   });
 
+  it("does not force an embedded image's paragraph to centre alignment (Obsidian defaults to left)", async () => {
+    const { documentXml } = await renderToDocx("![real](pic.png)", { binaries: { "pic.png": pngBytes() } });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const imagePara = Array.from(doc.getElementsByTagName("w:p")).find(
+      (p) => p.getElementsByTagName("a:graphic").length > 0 || p.getElementsByTagName("wp:inline").length > 0,
+    );
+    expect(imagePara).toBeDefined();
+    expect(imagePara!.getElementsByTagName("w:jc").length).toBe(0);
+  });
+
+  it("gives embedded/transcluded content a left border distinct from native content (matches Obsidian's embed preview)", async () => {
+    const { documentXml } = await renderToDocx("Native paragraph.\n\n![[Other]]", {
+      notes: { "Main.md": "", "Other.md": "# Embedded Heading\n\nEmbedded body." },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = Array.from(doc.getElementsByTagName("w:p"));
+
+    const nativePara = paragraphs.find((p) => (p.textContent ?? "").includes("Native paragraph"));
+    const embeddedHeadingPara = paragraphs.find((p) => (p.textContent ?? "").includes("Embedded Heading"));
+    const embeddedBodyPara = paragraphs.find((p) => (p.textContent ?? "").includes("Embedded body"));
+
+    expect(nativePara).toBeDefined();
+    expect(embeddedHeadingPara).toBeDefined();
+    expect(embeddedBodyPara).toBeDefined();
+
+    // Native content has no left border...
+    expect(nativePara!.getElementsByTagName("w:pBdr").length).toBe(0);
+
+    // ...embedded content does, in the dedicated embed colour (distinct
+    // from the blockquote border colour, CCCCCC).
+    for (const para of [embeddedHeadingPara!, embeddedBodyPara!]) {
+      const left = para.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+      expect(left).toBeDefined();
+      expect(left!.getAttribute("w:val")).toBe("single");
+      expect(left!.getAttribute("w:color")).toBe("8C8C8C");
+    }
+  });
+
+  it("gives a section embed's content the same left-border treatment as a full-note embed", async () => {
+    const target = "# One\n\nfirst\n\n## Two\n\nsecond";
+    const { documentXml } = await renderToDocx("![[T#Two]]", {
+      notes: { "M.md": "", "T.md": target },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = Array.from(doc.getElementsByTagName("w:p"));
+    const secondPara = paragraphs.find((p) => (p.textContent ?? "").includes("second"));
+    expect(secondPara).toBeDefined();
+    const left = secondPara!.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+    expect(left?.getAttribute("w:color")).toBe("8C8C8C");
+  });
+
+  it("converts a block equation with \\frac, \\left…\\right, \\int bounds, and \\, to a real OMML equation, not a plain-text fallback", async () => {
+    // Regression for a reported bug: \, (thin space) alone made this
+    // otherwise-supported equation throw and fall back to Code-styled
+    // plain text — see tests/unit/math/math.test.ts for the isolated
+    // parser-level coverage.
+    const { documentXml } = await renderToDocx(
+      "$$\n\\frac{d}{dx}\\left( \\int_{0}^{x} f(u)\\,du\\right)=f(x)\n$$",
+    );
+    expect(documentXml).toContain("<m:oMath");
+    expect(documentXml).not.toContain('style="Code"');
+  });
+
+  it("caps an unresized image to the page's usable height, not just its width", async () => {
+    // Same bug as image.test.ts's unit-level coverage, exercised through the
+    // real render pipeline end to end: a large, normally-proportioned image
+    // (3000x6500) previously only had its width capped, leaving it far
+    // taller than a single Letter page (6.5"w x 14.06"h against ~11" tall).
+    const buf = new ArrayBuffer(24);
+    new DataView(buf).setUint32(16, 3000);
+    new DataView(buf).setUint32(20, 6500);
+    const { documentXml } = await renderToDocx("![big](big.png)", {
+      binaries: { "big.png": buf },
+      options: { pageSize: "Letter", orientation: "portrait" },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const extent = doc.getElementsByTagName("wp:extent")[0];
+    expect(extent).toBeDefined();
+    const cyEmu = Number(extent.getAttribute("cy")); // EMUs: 914400 per inch
+    const heightIn = cyEmu / 914400;
+    expect(heightIn).toBeLessThanOrEqual(9); // Letter's ~9in usable height, not the unclamped ~14.06in
+  });
+
   it("rasterises SVG via the injected dep instead of a placeholder", async () => {
     const { documentXml, entries } = await renderToDocx(
       "![vec](drawing.svg)",
       { binaries: { "drawing.svg": textToArrayBuffer("<svg/>") } },
-      { deps: { rasterizeSvg: async () => ({ data: pngBytes() }) } },
+      { deps: { rasterizeSvg: async () => ({ data: pngBytes(), width: 1, height: 1 }) } },
     );
     expect(entries.some((e) => e.startsWith("word/media/"))).toBe(true);
     expect(documentXml).not.toContain("[SVG image");
+  });
+
+  it("displays a rasterised SVG (e.g. a 2x-oversampled Mermaid diagram) at its INTENDED size, not the oversampled PNG's raw pixel dimensions", async () => {
+    // The rasteriser reports intended display size (279x364) separately
+    // from the actual PNG bytes' own pixel dimensions — a 2x-oversampled
+    // 558x728px raster read directly as 96dpi display pixels would show
+    // roughly double the intended physical size, confirmed by manual test
+    // (a compact 4-box flowchart filling almost a full page).
+    const { documentXml } = await renderToDocx(
+      "![vec](drawing.svg)",
+      { binaries: { "drawing.svg": textToArrayBuffer("<svg/>") } },
+      { deps: { rasterizeSvg: async () => ({ data: pngBytes(), width: 279, height: 364 }) } },
+    );
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const extent = doc.getElementsByTagName("wp:extent")[0];
+    expect(extent).toBeDefined();
+    // 9525 EMU per px at 96 DPI — the standard OOXML conversion.
+    expect(extent.getAttribute("cx")).toBe(String(279 * 9525));
+    expect(extent.getAttribute("cy")).toBe(String(364 * 9525));
   });
 
   it("falls back to an SVG placeholder without a rasteriser", async () => {
@@ -78,6 +180,18 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     expect(documentXml).toContain('w:tblW w:type="pct" w:w="100%"');
   });
 
+  it("gives the frontmatter table explicit gridCol widths, narrower label column + wider value column", async () => {
+    const { documentXml } = await renderToDocx("---\ntitle: T\nauthor: Jane\n---\n\nbody", {
+      options: { frontmatterMode: "table" },
+    });
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCols = Array.from(doc.getElementsByTagName("w:gridCol"));
+    expect(gridCols.length).toBe(2);
+    const [label, value] = gridCols.map((c) => Number(c.getAttribute("w:w")));
+    expect(label).toBeGreaterThan(1000); // nowhere near the 100-twip default
+    expect(value).toBeGreaterThan(label); // matches the existing 30%/70% cell-width convention
+  });
+
   it("maps frontmatter to properties in metadata mode", async () => {
     const { zip } = await renderToDocx("---\ntitle: Meta\ntags: [x, y]\n---\n\nbody", {
       options: { frontmatterMode: "metadata" },
@@ -91,5 +205,160 @@ describe("DOCX frontmatter and unsupported rendering", () => {
     const { documentXml } = await renderToDocx("```dataview\nlist\n```");
     expect(documentXml).toContain("Dataview queries cannot be exported");
     expect(documentXml).not.toContain("```");
+  });
+
+  it("gives a top-level blockquote a left border, and a nested blockquote more indent + its own border", async () => {
+    const { documentXml } = await renderToDocx(
+      "> Outer blockquote.\n> > Nested blockquote.",
+    );
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const paragraphs = Array.from(doc.getElementsByTagName("w:p")).filter(
+      (p) => p.getElementsByTagName("w:t").length > 0,
+    );
+
+    const outerPara = paragraphs.find((p) => (p.textContent ?? "").includes("Outer blockquote"));
+    const nestedPara = paragraphs.find((p) => (p.textContent ?? "").includes("Nested blockquote"));
+    expect(outerPara).toBeDefined();
+    expect(nestedPara).toBeDefined();
+
+    const outerBorder = outerPara!.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+    const nestedBorder = nestedPara!.getElementsByTagName("w:pBdr")[0]?.getElementsByTagName("w:left")[0];
+    expect(outerBorder).toBeDefined();
+    expect(nestedBorder).toBeDefined();
+    expect(outerBorder!.getAttribute("w:val")).toBe("single");
+    expect(nestedBorder!.getAttribute("w:val")).toBe("single");
+
+    const outerIndent = Number(outerPara!.getElementsByTagName("w:ind")[0]?.getAttribute("w:left"));
+    const nestedIndent = Number(nestedPara!.getElementsByTagName("w:ind")[0]?.getAttribute("w:left"));
+    expect(nestedIndent).toBeGreaterThan(outerIndent);
+  });
+
+  it("adds a spacer between separate sibling blockquotes so their left borders don't visually touch", async () => {
+    // Same root cause as thematicBreak/callout-table spacing this session:
+    // three distinct `>` blockquotes (blank line between each — three
+    // separate BlockquoteNodes, not one multi-paragraph quote) rendered as
+    // one unbroken bar with no gap.
+    const { documentXml } = await renderToDocx("> First quote.\n\n> Second quote.\n\n> Third quote.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const bodyChildren = Array.from(doc.getElementsByTagName("w:body")[0].children);
+
+    const indexOf = (needle: string): number =>
+      bodyChildren.findIndex((el) => (el.textContent ?? "").includes(needle));
+    const firstIndex = indexOf("First quote");
+    const secondIndex = indexOf("Second quote");
+    const thirdIndex = indexOf("Third quote");
+    expect(firstIndex).toBeGreaterThanOrEqual(0);
+    expect(secondIndex).toBeGreaterThan(firstIndex);
+    expect(thirdIndex).toBeGreaterThan(secondIndex);
+
+    // A spacer paragraph (no border, w:spacing w:after) sits directly
+    // between each pair of sibling quote paragraphs.
+    const spacerAfterFirst = bodyChildren[firstIndex + 1];
+    const spacerAfterSecond = bodyChildren[secondIndex + 1];
+    for (const spacer of [spacerAfterFirst, spacerAfterSecond]) {
+      expect(spacer.tagName).toBe("w:p");
+      expect(spacer.getElementsByTagName("w:pBdr").length).toBe(0);
+      expect(spacer.getElementsByTagName("w:spacing")[0]?.getAttribute("w:after")).toBe("120");
+    }
+  });
+
+  it("does NOT add a spacer after a nested blockquote (only distinct siblings need the gap)", async () => {
+    const { documentXml } = await renderToDocx("> Outer start.\n> > Nested.\n> Outer end.");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const bodyChildren = Array.from(doc.getElementsByTagName("w:body")[0].children);
+    const nestedIndex = bodyChildren.findIndex((el) => (el.textContent ?? "").includes("Nested"));
+    const nextEl = bodyChildren[nestedIndex + 1];
+    // Whatever follows the nested quote's paragraph is NOT a bare spacer —
+    // it's the next real content (or, if the nested quote were last, the
+    // outer quote's own top-level spacer, which would come after "Outer
+    // end." instead). Here it must be the "Outer end." paragraph directly.
+    expect(nextEl.textContent ?? "").toContain("Outer end");
+  });
+
+  it("shows a right-aligned language label above a labeled code fence, and none for an unlabeled one", async () => {
+    const labeled = await renderToDocx("```python\nx = 1\n```");
+    expect(labeled.documentXml).toContain(">python<");
+    const labelPara = Array.from(
+      new DOMParser().parseFromString(labeled.documentXml, "application/xml").getElementsByTagName("w:p"),
+    ).find((p) => (p.textContent ?? "").trim() === "python");
+    expect(labelPara).toBeDefined();
+    expect(labelPara!.getElementsByTagName("w:jc")[0]?.getAttribute("w:val")).toBe("right");
+
+    const unlabeled = await renderToDocx("```\nx = 1\n```");
+    expect(unlabeled.documentXml).not.toContain(">python<");
+    const noLabelParas = Array.from(
+      new DOMParser().parseFromString(unlabeled.documentXml, "application/xml").getElementsByTagName("w:p"),
+    ).filter((p) => (p.textContent ?? "").trim() === "");
+    // No stray right-aligned label paragraph in the unlabeled case.
+    expect(noLabelParas.every((p) => p.getElementsByTagName("w:jc").length === 0)).toBe(true);
+  });
+
+  it("sets an explicit, realistic gridCol width on a code-block table", async () => {
+    const { documentXml } = await renderToDocx("```\nx = 1\n```");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const gridCol = doc.getElementsByTagName("w:gridCol")[0];
+    expect(gridCol).toBeDefined();
+    expect(Number(gridCol.getAttribute("w:w"))).toBeGreaterThan(5000); // nowhere near the 100-twip default
+  });
+
+  it("colours a recognised language's tokens distinctly; an unrecognised language and no language stay monospace-only", async () => {
+    const highlighted = await renderToDocx("```python\ndef greet(name):  # hi\n    return name\n```");
+    const doc = new DOMParser().parseFromString(highlighted.documentXml, "application/xml");
+    const runs = Array.from(doc.getElementsByTagName("w:r"));
+    const colors = new Set(
+      runs.map((r) => r.getElementsByTagName("w:color")[0]?.getAttribute("w:val")).filter((c): c is string => !!c),
+    );
+    // At least keyword (def) and comment (# hi) colours should both appear —
+    // i.e. more than just the single flat "code" colour used before this
+    // feature existed.
+    expect(colors.size).toBeGreaterThan(1);
+
+    const plainSource = "```\ndef greet(name):  # hi\n```";
+    const plain = await renderToDocx(plainSource);
+    const plainDoc = new DOMParser().parseFromString(plain.documentXml, "application/xml");
+    const plainColors = new Set(
+      Array.from(plainDoc.getElementsByTagName("w:r"))
+        .map((r) => r.getElementsByTagName("w:color")[0]?.getAttribute("w:val"))
+        .filter((c): c is string => !!c),
+    );
+    expect(plainColors.size).toBe(1); // every run the same single colour
+
+    const unrecognized = await renderToDocx("```cobol\nDISPLAY 'HI'.\n```");
+    const unrecognizedDoc = new DOMParser().parseFromString(unrecognized.documentXml, "application/xml");
+    const unrecognizedColors = new Set(
+      Array.from(unrecognizedDoc.getElementsByTagName("w:r"))
+        .map((r) => r.getElementsByTagName("w:color")[0]?.getAttribute("w:val"))
+        .filter((c): c is string => !!c),
+    );
+    // The label run has its own (caption) colour, so allow up to 2 distinct
+    // colours here — but the code line itself must stay single-colour.
+    const codeLinePara = Array.from(unrecognizedDoc.getElementsByTagName("w:p")).find((p) =>
+      (p.textContent ?? "").includes("DISPLAY"),
+    );
+    const codeLineColors = new Set(
+      Array.from(codeLinePara!.getElementsByTagName("w:r"))
+        .map((r) => r.getElementsByTagName("w:color")[0]?.getAttribute("w:val"))
+        .filter((c): c is string => !!c),
+    );
+    expect(codeLineColors.size).toBe(1);
+    expect(unrecognizedColors.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it("colours Python True/False/None the same keyword colour as other keywords, not the plain code colour", async () => {
+    const { documentXml } = await renderToDocx("```python\nis_admin = True\nfound = False\nx = None\n```");
+    const doc = new DOMParser().parseFromString(documentXml, "application/xml");
+    const runs = Array.from(doc.getElementsByTagName("w:r"));
+    const colorOf = (text: string): string | undefined =>
+      runs
+        .find((r) => (r.getElementsByTagName("w:t")[0]?.textContent ?? "") === text)
+        ?.getElementsByTagName("w:color")[0]
+        ?.getAttribute("w:val") ?? undefined;
+
+    expect(colorOf("True")).toBe("0000FF");
+    expect(colorOf("False")).toBe("0000FF");
+    expect(colorOf("None")).toBe("0000FF");
+    // Not the flat "plain code" grey these literals would get if they were
+    // mistakenly left untokenized as ordinary identifiers.
+    expect(colorOf("True")).not.toBe("333333");
   });
 });
